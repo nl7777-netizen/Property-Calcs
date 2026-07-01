@@ -141,7 +141,7 @@ export default function SettingsPanel({
         propertyPrice,
         customGrowthRate: propertyInflationEnabled ? customGrowthRate : 0,
         isFirstHomeBuyer,
-        cashAssets: cashAssets + existingEquity,
+        cashAssets: cashAssets,
         sharesAssets,
         otherAssets,
         currentSimDate,
@@ -149,7 +149,14 @@ export default function SettingsPanel({
         monthlySavingsContribution,
         savingsAnnualReturnRate,
         interestFreeLoanActive,
-        interestFreeLoanAmount
+        interestFreeLoanAmount,
+        existingPropertyValue,
+        existingPropertyLoan,
+        useExistingEquity,
+        salary1,
+        salary2,
+        taxYear,
+        dynamicTaxConfig
       });
       finalPropertyPrice = sim.futurePropertyPrice;
       finalStampDuty = sim.futureStampDuty;

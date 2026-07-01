@@ -95,13 +95,23 @@ export default function HomeDashboard({
 
   // --- COMPREHENSIVE MATHS & LOGIC ON THE RECALCULATED INPUTS ---
   const calculatedValues = useMemo(() => {
-    let finalPropertyPrice = propertyPrice;
-    let finalStampDuty = calculateNSWStampDuty(propertyPrice, isFirstHomeBuyer);
-    const conveyancingFees = 2000;
-    
     // Existing equity calculations
     const existingEquity = useExistingEquity ? Math.max(0, existingPropertyValue - existingPropertyLoan) : 0;
-    let finalTotalOffsetAssets = cashAssets + sharesAssets + otherAssets + existingEquity;
+
+    // Current baseline metrics (without future timeline changes)
+    const currentPropertyPrice = propertyPrice;
+    const currentStampDuty = calculateNSWStampDuty(propertyPrice, isFirstHomeBuyer);
+    const conveyancingFees = 2000;
+    const currentTotalCosts = currentPropertyPrice + currentStampDuty + conveyancingFees;
+    const currentTotalOffsetAssets = cashAssets + sharesAssets + otherAssets + existingEquity;
+    const currentRequiredMortgage = Math.max(0, currentTotalCosts - currentTotalOffsetAssets - (interestFreeLoanActive ? interestFreeLoanAmount : 0));
+    const currentDepositPercent = currentPropertyPrice > 0 ? (currentTotalOffsetAssets / currentPropertyPrice) * 100 : 0;
+    const currentLmiApplicable = currentRequiredMortgage > 0 && currentDepositPercent < 20;
+
+    let finalPropertyPrice = propertyPrice;
+    let finalStampDuty = currentStampDuty;
+    
+    let finalTotalOffsetAssets = currentTotalOffsetAssets;
     
     let futureSimInfo = null;
     if (simulateFuturePurchase) {
@@ -109,7 +119,7 @@ export default function HomeDashboard({
         propertyPrice,
         customGrowthRate: propertyInflationEnabled ? customGrowthRate : 0,
         isFirstHomeBuyer,
-        cashAssets: cashAssets + existingEquity,
+        cashAssets: cashAssets,
         sharesAssets,
         otherAssets,
         currentSimDate,
@@ -117,7 +127,14 @@ export default function HomeDashboard({
         monthlySavingsContribution,
         savingsAnnualReturnRate,
         interestFreeLoanActive,
-        interestFreeLoanAmount
+        interestFreeLoanAmount,
+        existingPropertyValue,
+        existingPropertyLoan,
+        useExistingEquity,
+        salary1,
+        salary2,
+        taxYear,
+        dynamicTaxConfig
       });
       finalPropertyPrice = sim.futurePropertyPrice;
       finalStampDuty = sim.futureStampDuty;
@@ -230,6 +247,13 @@ export default function HomeDashboard({
       finalTotalOffsetAssets,
       appliedInterestFreeLoan,
       mortgageAmount,
+      currentPropertyPrice,
+      currentStampDuty,
+      currentTotalCosts,
+      currentTotalOffsetAssets,
+      currentRequiredMortgage,
+      currentDepositPercent,
+      currentLmiApplicable,
       tax1,
       tax2,
       combinedNetAnnual,
@@ -293,6 +317,13 @@ export default function HomeDashboard({
     finalTotalOffsetAssets,
     appliedInterestFreeLoan,
     mortgageAmount,
+    currentPropertyPrice,
+    currentStampDuty,
+    currentTotalCosts,
+    currentTotalOffsetAssets,
+    currentRequiredMortgage,
+    currentDepositPercent,
+    currentLmiApplicable,
     tax1,
     tax2,
     combinedNetAnnual,
@@ -552,8 +583,13 @@ export default function HomeDashboard({
                     <Coins className="w-4.5 h-4.5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-100">NSW Purchase Costs & Funding</h3>
-                    <p className="text-[10px] text-slate-400">Acquisition budget and initial deposit offsets</p>
+                    <h3 className="text-sm font-bold text-slate-100 font-sans">NSW Purchase Costs & Funding</h3>
+                    <p className="text-[10px] text-slate-400">
+                      {simulateFuturePurchase 
+                        ? 'Side-by-side analysis: Current purchase vs Future simulated purchase' 
+                        : 'Acquisition budget and initial deposit offsets'
+                      }
+                    </p>
                   </div>
                 </div>
                 <span className="text-[10px] font-semibold text-slate-500 font-mono">
@@ -561,111 +597,296 @@ export default function HomeDashboard({
                 </span>
               </div>
 
+              {simulateFuturePurchase && (
+                <div className="p-2.5 bg-indigo-950/15 border border-indigo-900/45 rounded-xl flex items-center justify-between text-[11px] text-indigo-300">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>
+                      Future simulation is <strong>active</strong> for <strong className="text-indigo-200 font-mono">{purchaseSimDate}</strong> ({futureSimInfo?.monthsDiff} months away).
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 
                 {/* Costs side */}
                 <div className="space-y-3">
-                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Estimated Acquisition Costs</h4>
+                  <div className="flex justify-between items-baseline border-b border-slate-900/60 pb-1.5">
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Acquisition Costs</h4>
+                    {simulateFuturePurchase && (
+                      <span className="text-[9px] text-indigo-400 font-bold font-mono">Current vs Future</span>
+                    )}
+                  </div>
                   
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400">Property Price {simulateFuturePurchase && '(Projected)'}</span>
-                      <span className="font-semibold text-slate-200 font-mono">${finalPropertyPrice.toLocaleString()}</span>
-                    </div>
-                    
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400 flex items-center gap-1">
-                        NSW Stamp Duty
-                        {finalStampDuty === 0 && <span className="text-[9px] px-1 bg-emerald-950 text-emerald-400 rounded">Exempt</span>}
-                      </span>
-                      <span className="font-semibold text-slate-200 font-mono">${finalStampDuty.toLocaleString()}</span>
-                    </div>
-                    
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400">Conveyancing Fees</span>
-                      <span className="font-semibold text-slate-200 font-mono">${conveyancingFees.toLocaleString()}</span>
-                    </div>
+                    {simulateFuturePurchase && futureSimInfo ? (
+                      <>
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <span className="col-span-5 text-slate-400">Property Price</span>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">${currentPropertyPrice.toLocaleString()}</span>
+                          <span className="col-span-4 text-right font-bold text-indigo-300 font-mono">${futureSimInfo.futurePropertyPrice.toLocaleString()}</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <span className="col-span-5 text-slate-400 flex flex-wrap items-center gap-1">
+                            NSW Stamp Duty
+                          </span>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">
+                            {currentStampDuty === 0 ? <span className="text-[9px] px-1 bg-emerald-950 text-emerald-400 rounded">Exempt</span> : `$${currentStampDuty.toLocaleString()}`}
+                          </span>
+                          <span className="col-span-4 text-right font-bold text-indigo-300 font-mono">
+                            {futureSimInfo.futureStampDuty === 0 ? <span className="text-[9px] px-1 bg-emerald-950 text-emerald-400 rounded">Exempt</span> : `$${futureSimInfo.futureStampDuty.toLocaleString()}`}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <span className="col-span-5 text-slate-400">Conveyancing</span>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">$2,000</span>
+                          <span className="col-span-4 text-right font-bold text-indigo-300 font-mono">$2,000</span>
+                        </div>
 
-                    <div className="flex justify-between items-center py-2.5 bg-slate-900/30 rounded-lg px-2.5 border border-slate-900">
-                      <span className="text-slate-300 font-bold">Total Capital Required</span>
-                      <span className="text-slate-100 font-extrabold font-mono text-sm">${totalCosts.toLocaleString()}</span>
-                    </div>
+                        <div className="grid grid-cols-12 gap-1.5 py-2.5 bg-slate-900/30 rounded-lg px-2 border border-slate-900 font-sans mt-2">
+                          <span className="col-span-5 text-slate-300 font-bold">Total Capital</span>
+                          <span className="col-span-3 text-right text-slate-400 font-bold font-mono">${currentTotalCosts.toLocaleString()}</span>
+                          <span className="col-span-4 text-right text-indigo-200 font-extrabold font-mono text-[13px]">${futureSimInfo.futureTotalCosts.toLocaleString()}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400">Property Price</span>
+                          <span className="font-semibold text-slate-200 font-mono">${currentPropertyPrice.toLocaleString()}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400 flex items-center gap-1">
+                            NSW Stamp Duty
+                            {currentStampDuty === 0 && <span className="text-[9px] px-1 bg-emerald-950 text-emerald-400 rounded">Exempt</span>}
+                          </span>
+                          <span className="font-semibold text-slate-200 font-mono">${currentStampDuty.toLocaleString()}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400">Conveyancing Fees</span>
+                          <span className="font-semibold text-slate-200 font-mono">$2,000</span>
+                        </div>
+
+                        <div className="flex justify-between items-center py-2.5 bg-slate-900/30 rounded-lg px-2.5 border border-slate-900">
+                          <span className="text-slate-300 font-bold">Total Capital Required</span>
+                          <span className="text-slate-100 font-extrabold font-mono text-sm">${currentTotalCosts.toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 {/* Funding Side */}
                 <div className="space-y-3">
-                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Deposit Funding & Offsets</h4>
+                  <div className="flex justify-between items-baseline border-b border-slate-900/60 pb-1.5">
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Deposit & Offsets</h4>
+                    {simulateFuturePurchase && (
+                      <span className="text-[9px] text-emerald-400 font-bold font-mono">Current vs Future</span>
+                    )}
+                  </div>
                   
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400">Cash Savings Pool</span>
-                      <span className="font-semibold text-slate-200 font-mono">${cashAssets.toLocaleString()}</span>
-                    </div>
+                    {simulateFuturePurchase && futureSimInfo ? (
+                      <>
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <span className="col-span-5 text-slate-400">Initial Asset Pool</span>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">${(cashAssets + sharesAssets + otherAssets).toLocaleString()}</span>
+                          <span className="col-span-4 text-right text-slate-400 font-mono">-</span>
+                        </div>
 
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400">Share Portfolio Value</span>
-                      <span className="font-semibold text-slate-200 font-mono">${sharesAssets.toLocaleString()}</span>
-                    </div>
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <span className="col-span-5 text-slate-400">Monthly Savings Added</span>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
+                          <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.additionalSavingsFromContributions.toLocaleString()}</span>
+                        </div>
 
-                    <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                      <span className="text-slate-400">Other Declared Assets</span>
-                      <span className="font-semibold text-slate-200 font-mono">${otherAssets.toLocaleString()}</span>
-                    </div>
+                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                          <div className="col-span-5">
+                            <span className="text-slate-400">Compounded Growth</span>
+                            {futureSimInfo.taxRateUsed !== undefined && (
+                              <span className="block text-[9px] text-slate-500 font-normal">
+                                After {Math.round(futureSimInfo.taxRateUsed * 100)}% lower-bracket tax
+                              </span>
+                            )}
+                          </div>
+                          <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
+                          <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.compoundingGains.toLocaleString()}</span>
+                        </div>
 
-                    {useExistingEquity && existingPropertyValue > 0 && (
-                      <div className="flex justify-between items-center py-1 border-b border-slate-900">
-                        <span className="text-emerald-400 font-semibold">Available Home Equity</span>
-                        <span className="font-semibold text-emerald-400 font-mono">${existingEquity.toLocaleString()}</span>
-                      </div>
+                        {futureSimInfo.compoundingGainsPreTax !== undefined && futureSimInfo.compoundingGainsPreTax > futureSimInfo.compoundingGains && (
+                          <>
+                            <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px]">
+                              <span className="col-span-5 text-slate-500 pl-3">└─ Pre-Tax Returns</span>
+                              <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
+                              <span className="col-span-4 text-right text-slate-400 font-mono">+${futureSimInfo.compoundingGainsPreTax.toLocaleString()}</span>
+                            </div>
+                            <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px] border-b border-slate-900/40">
+                              <span className="col-span-5 text-slate-500 pl-3">└─ Annual Interest Tax</span>
+                              <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
+                              <span className="col-span-4 text-right text-rose-400/80 font-mono">-${(futureSimInfo.taxPaidOnGains ?? 0).toLocaleString()}</span>
+                            </div>
+                          </>
+                        )}
+
+                        {useExistingEquity && existingPropertyValue > 0 && (
+                          <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                            <span className="col-span-5 text-emerald-400 font-semibold">Available Equity</span>
+                            <span className="col-span-3 text-right text-emerald-500 font-mono">${existingEquity.toLocaleString()}</span>
+                            <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">${existingEquity.toLocaleString()}</span>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-12 gap-1.5 py-2.5 bg-slate-900/30 rounded-lg px-2 border border-slate-900 font-sans mt-2">
+                          <span className="col-span-5 text-slate-300 font-bold">Total Funding Pool</span>
+                          <span className="col-span-3 text-right text-slate-400 font-bold font-mono">${currentTotalOffsetAssets.toLocaleString()}</span>
+                          <span className="col-span-4 text-right text-emerald-300 font-extrabold font-mono text-[13px]">${futureSimInfo.accruedAssets.toLocaleString()}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400">Cash Savings Pool</span>
+                          <span className="font-semibold text-slate-200 font-mono">${cashAssets.toLocaleString()}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400">Share Portfolio Value</span>
+                          <span className="font-semibold text-slate-200 font-mono">${sharesAssets.toLocaleString()}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                          <span className="text-slate-400">Other Declared Assets</span>
+                          <span className="font-semibold text-slate-200 font-mono">${otherAssets.toLocaleString()}</span>
+                        </div>
+
+                        {useExistingEquity && existingPropertyValue > 0 && (
+                          <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                            <span className="text-emerald-400 font-semibold">Available Home Equity</span>
+                            <span className="font-semibold text-emerald-400 font-mono">${existingEquity.toLocaleString()}</span>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center py-2.5 bg-slate-900/30 rounded-lg px-2.5 border border-slate-900">
+                          <span className="text-slate-300 font-bold">Total Funding Offset</span>
+                          <span className="text-slate-100 font-extrabold font-mono text-sm">${currentTotalOffsetAssets.toLocaleString()}</span>
+                        </div>
+                      </>
                     )}
-
-                    <div className="flex justify-between items-center py-2.5 bg-slate-900/30 rounded-lg px-2.5 border border-slate-900">
-                      <span className="text-slate-300 font-bold">Total Funding Offset</span>
-                      <span className="text-slate-100 font-extrabold font-mono text-sm">${finalTotalOffsetAssets.toLocaleString()}</span>
-                    </div>
                   </div>
                 </div>
 
               </div>
 
               {/* Deposit Ratio & LMI check */}
-              <div className="p-3 rounded-xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-slate-900/40 border-slate-900">
-                <div>
-                  <span className="block text-[10px] text-slate-500 uppercase font-bold">Initial Deposit LVR Ratio</span>
-                  <span className="text-sm font-extrabold text-slate-200 font-mono">
-                    {depositPercent.toFixed(1)}% of Property Price
-                  </span>
+              {simulateFuturePurchase && futureSimInfo ? (
+                <div className="p-3.5 rounded-xl border bg-slate-900/40 border-slate-900/80 space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="block text-[9px] text-slate-500 uppercase font-bold">Current Deposit Ratio</span>
+                      <span className="text-sm font-extrabold text-slate-300 font-mono">
+                        {currentDepositPercent.toFixed(1)}% of Price
+                      </span>
+                      <span className={`block text-[9px] font-bold ${currentLmiApplicable ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {currentLmiApplicable ? 'Lenders Mortgage Insurance (LMI) applies' : '✓ LMI Exempt'}
+                      </span>
+                    </div>
+                    <div className="border-l border-slate-900/80 pl-4">
+                      <span className="block text-[9px] text-indigo-400 uppercase font-extrabold flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-indigo-400" /> Future Deposit Ratio
+                      </span>
+                      <span className="text-sm font-black text-indigo-300 font-mono">
+                        {depositPercent.toFixed(1)}% of Projected Price
+                      </span>
+                      <span className={`block text-[9px] font-bold ${lmiApplicable ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {lmiApplicable ? 'Lenders Mortgage Insurance (LMI) applies' : '✓ LMI Exempt'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {(currentLmiApplicable || lmiApplicable) && (
+                    <div className="p-2 bg-amber-500/5 border border-amber-500/10 text-[10px] text-amber-400 rounded-lg leading-relaxed">
+                      <strong>Lenders Mortgage Insurance (LMI) Premium Notice:</strong> Deposit is below <span className="font-mono">20%</span> in {currentLmiApplicable && lmiApplicable ? 'both scenarios' : currentLmiApplicable ? 'the current scenario' : 'the future scenario'}. Standard retail banks will add structural LMI premium insurance to the initial loan.
+                    </div>
+                  )}
+                  {(!currentLmiApplicable && !lmiApplicable) && (
+                    <div className="p-2 bg-emerald-500/5 border border-emerald-500/10 text-[10px] text-emerald-400 rounded-lg">
+                      ✓ <strong>LMI Exempt:</strong> Initial deposit exceeds the 20% limit in both current and simulated purchase dates. Safe tier!
+                    </div>
+                  )}
                 </div>
-                {lmiApplicable ? (
-                  <div className="p-2 bg-amber-500/5 border border-amber-500/10 text-[10px] text-amber-400 rounded-lg max-w-xs">
-                    <strong>Lenders Mortgage Insurance (LMI):</strong> Your deposit is less than <span className="font-mono">20%</span>. Standard banks will apply LMI premiums.
+              ) : (
+                <div className="p-3 rounded-xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-slate-900/40 border-slate-900">
+                  <div>
+                    <span className="block text-[10px] text-slate-500 uppercase font-bold">Initial Deposit LVR Ratio</span>
+                    <span className="text-sm font-extrabold text-slate-200 font-mono">
+                      {depositPercent.toFixed(1)}% of Property Price
+                    </span>
                   </div>
-                ) : (
-                  <div className="p-2 bg-emerald-500/5 border border-emerald-500/10 text-[10px] text-emerald-400 rounded-lg">
-                    ✓ <strong>LMI Exempt:</strong> Deposit exceeds 20%. Safe lending territory.
-                  </div>
-                )}
-              </div>
+                  {lmiApplicable ? (
+                    <div className="p-2 bg-amber-500/5 border border-amber-500/10 text-[10px] text-amber-400 rounded-lg max-w-xs">
+                      <strong>Lenders Mortgage Insurance (LMI):</strong> Your deposit is less than <span className="font-mono">20%</span>. Standard banks will apply LMI premiums.
+                    </div>
+                  ) : (
+                    <div className="p-2 bg-emerald-500/5 border border-emerald-500/10 text-[10px] text-emerald-400 rounded-lg">
+                      ✓ <strong>LMI Exempt:</strong> Deposit exceeds 20%. Safe lending territory.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Net Required Mortgage */}
-              <div className="p-4 bg-gradient-to-r from-sky-950/20 to-slate-900/30 border border-sky-500/10 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Required Mortgage Loan</span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-sky-400 font-mono">${mortgageAmount.toLocaleString()}</span>
-                    <span className="text-xs text-slate-400 font-mono">at {interestRatePrimary}% P.A.</span>
+              {simulateFuturePurchase && futureSimInfo ? (
+                <div className="p-4 bg-gradient-to-r from-indigo-950/20 to-slate-900/35 border border-indigo-500/10 rounded-xl space-y-3">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-900/60">
+                    <span className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">Required Mortgage Loan Comparison</span>
+                    <span className="text-[9px] text-slate-500 font-semibold font-mono">Interest Rate: {interestRatePrimary}% P.A.</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Current Purchase Mortgage</span>
+                      <span className="text-lg font-bold text-slate-400 font-mono">${currentRequiredMortgage.toLocaleString()}</span>
+                      <span className="block text-[9px] text-slate-500 font-mono">At current market valuations</span>
+                    </div>
+
+                    <div className="border-l border-slate-900/80 pl-4">
+                      <span className="block text-[10px] text-indigo-400 font-extrabold uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-indigo-400" /> Future Mortgage Required
+                      </span>
+                      <span className="text-xl font-black text-indigo-400 font-mono">${futureSimInfo.futureMortgageAmount.toLocaleString()}</span>
+                      <span className="block text-[9px] text-indigo-500/85 font-mono">
+                        {futureSimInfo.futureMortgageAmount < currentRequiredMortgage 
+                          ? `Saved $${(currentRequiredMortgage - futureSimInfo.futureMortgageAmount).toLocaleString()} off final loan principal!` 
+                          : `Requires $${(futureSimInfo.futureMortgageAmount - currentRequiredMortgage).toLocaleString()} more due to projected property price growth`
+                        }
+                      </span>
+                    </div>
                   </div>
                 </div>
-
-                {interestFreeLoanActive && (
-                  <div className="text-right">
-                    <span className="block text-[10px] text-slate-500">Interest-Free Co-Loan</span>
-                    <span className="text-sm font-bold text-slate-300 font-mono">${interestFreeLoanAmount.toLocaleString()}</span>
-                    <span className="block text-[9px] text-sky-400 font-mono">-${Math.round(monthlyIFLRepayment)}/mo repayment</span>
+              ) : (
+                <div className="p-4 bg-gradient-to-r from-sky-950/20 to-slate-900/30 border border-sky-500/10 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Required Mortgage Loan</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-sky-400 font-mono">${mortgageAmount.toLocaleString()}</span>
+                      <span className="text-xs text-slate-400 font-mono">at {interestRatePrimary}% P.A.</span>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {interestFreeLoanActive && (
+                    <div className="text-right">
+                      <span className="block text-[10px] text-slate-500">Interest-Free Co-Loan</span>
+                      <span className="text-sm font-bold text-slate-300 font-mono">${interestFreeLoanAmount.toLocaleString()}</span>
+                      <span className="block text-[9px] text-sky-400 font-mono">-${Math.round(monthlyIFLRepayment)}/mo repayment</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* COLUMN 2: REPAYMENT & EXTRA PAYOFF TIMELINE */}

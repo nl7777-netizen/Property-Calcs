@@ -425,7 +425,7 @@ export function getMonthsBetweenDates(start: string, end: string): number {
   return (endY - startY) * 12 + (endM - startM);
 }
 
-interface FuturePurchaseResult {
+export interface FuturePurchaseResult {
   monthsDiff: number;
   futurePropertyPrice: number;
   futureStampDuty: number;
@@ -435,6 +435,9 @@ interface FuturePurchaseResult {
   futureMortgageAmount: number;
   additionalSavingsFromContributions: number;
   compoundingGains: number;
+  taxRateUsed?: number;
+  compoundingGainsPreTax?: number;
+  taxPaidOnGains?: number;
 }
 
 /**
@@ -453,6 +456,13 @@ export function calculateFuturePurchaseSimulation(params: {
   savingsAnnualReturnRate: number;
   interestFreeLoanActive: boolean;
   interestFreeLoanAmount: number;
+  existingPropertyValue?: number;
+  existingPropertyLoan?: number;
+  useExistingEquity?: boolean;
+  salary1?: number;
+  salary2?: number;
+  taxYear?: TaxYear;
+  dynamicTaxConfig?: DynamicTaxConfig;
 }): FuturePurchaseResult {
   const monthsDiff = Math.max(0, getMonthsBetweenDates(params.currentSimDate, params.purchaseSimDate));
   const yearsDiff = monthsDiff / 12;
@@ -465,31 +475,70 @@ export function calculateFuturePurchaseSimulation(params: {
   const futureConveyancingFees = 2000;
   const futureTotalCosts = futurePropertyPrice + futureStampDuty + futureConveyancingFees;
 
-  // 3. Compounded Savings
-  const initialAssets = params.cashAssets + params.sharesAssets + params.otherAssets;
-  const r = (params.savingsAnnualReturnRate / 100) / 12;
+  // 3. Determine the tax rate of the lower salary bracket
+  const sal1 = params.salary1 ?? 115000;
+  const sal2 = params.salary2 ?? 95000;
+  const lowerSalary = Math.min(sal1, sal2);
+  const taxYear = params.taxYear ?? '2024-25';
+  const taxBreakdown = calculateNSWIncomeTax(lowerSalary, taxYear, params.dynamicTaxConfig);
   
-  let accruedAssets = initialAssets;
+  const marginalRate = taxBreakdown.marginalRate;
+  const medicareLevyRate = params.dynamicTaxConfig && taxYear === params.dynamicTaxConfig.financialYear
+    ? params.dynamicTaxConfig.medicareLevyRate
+    : 0.02;
+  const medicareRate = lowerSalary > 24276 ? medicareLevyRate * 100 : 0;
+  const taxRate = (marginalRate + medicareRate) / 100; // e.g. 0.32
+
+  // 4. Compounded Savings on liquid assets only
+  const initialLiquidAssets = params.cashAssets + params.sharesAssets + params.otherAssets;
+  
+  const preTaxAnnualRate = params.savingsAnnualReturnRate / 100;
+  const afterTaxAnnualRate = preTaxAnnualRate * (1 - taxRate);
+  const r_pre = preTaxAnnualRate / 12;
+  const r_post = afterTaxAnnualRate / 12;
+  
+  let accruedLiquidAssets = initialLiquidAssets;
+  let accruedLiquidAssetsPreTax = initialLiquidAssets;
   let totalContributions = 0;
 
   if (monthsDiff > 0) {
-    // Compound initial asset pool
-    accruedAssets = initialAssets * Math.pow(1 + r, monthsDiff);
-    
-    // Accumulate monthly contributions
-    if (r > 0) {
-      accruedAssets += params.monthlySavingsContribution * ((Math.pow(1 + r, monthsDiff) - 1) / r);
+    // Post-tax compounding
+    accruedLiquidAssets = initialLiquidAssets * Math.pow(1 + r_post, monthsDiff);
+    if (r_post > 0) {
+      accruedLiquidAssets += params.monthlySavingsContribution * ((Math.pow(1 + r_post, monthsDiff) - 1) / r_post);
     } else {
-      accruedAssets += params.monthlySavingsContribution * monthsDiff;
+      accruedLiquidAssets += params.monthlySavingsContribution * monthsDiff;
+    }
+
+    // Pre-tax compounding (for breakdown metrics)
+    accruedLiquidAssetsPreTax = initialLiquidAssets * Math.pow(1 + r_pre, monthsDiff);
+    if (r_pre > 0) {
+      accruedLiquidAssetsPreTax += params.monthlySavingsContribution * ((Math.pow(1 + r_pre, monthsDiff) - 1) / r_pre);
+    } else {
+      accruedLiquidAssetsPreTax += params.monthlySavingsContribution * monthsDiff;
     }
     
     totalContributions = params.monthlySavingsContribution * monthsDiff;
   }
 
-  const compoundingGains = Math.max(0, accruedAssets - initialAssets - totalContributions);
+  const compoundingGains = Math.max(0, accruedLiquidAssets - initialLiquidAssets - totalContributions);
+  const compoundingGainsPreTax = Math.max(0, accruedLiquidAssetsPreTax - initialLiquidAssets - totalContributions);
+  const taxPaidOnGains = Math.max(0, compoundingGainsPreTax - compoundingGains);
+
+  // 5. Existing property equity growth (grown separately using property inflation rate, not compound savings rate)
+  const propVal = params.existingPropertyValue ?? 0;
+  const propLoan = params.existingPropertyLoan ?? 0;
+  const useEquity = params.useExistingEquity ?? false;
+  
+  const futureExistingPropertyValue = propVal * Math.pow(1 + params.customGrowthRate / 100, yearsDiff);
+  const futureExistingEquity = useEquity ? Math.max(0, futureExistingPropertyValue - propLoan) : 0;
+
+  // Combined final assets
+  const accruedAssets = accruedLiquidAssets + futureExistingEquity;
+
   const appliedInterestFreeLoan = params.interestFreeLoanActive ? params.interestFreeLoanAmount : 0;
   
-  // 4. Future Mortgage Amount required
+  // 6. Future Mortgage Amount required
   const futureMortgageAmount = Math.max(0, futureTotalCosts - accruedAssets - appliedInterestFreeLoan);
 
   return {
@@ -502,5 +551,8 @@ export function calculateFuturePurchaseSimulation(params: {
     futureMortgageAmount: Math.round(futureMortgageAmount),
     additionalSavingsFromContributions: Math.round(totalContributions),
     compoundingGains: Math.round(compoundingGains),
+    taxRateUsed: taxRate,
+    compoundingGainsPreTax: Math.round(compoundingGainsPreTax),
+    taxPaidOnGains: Math.round(taxPaidOnGains)
   };
 }

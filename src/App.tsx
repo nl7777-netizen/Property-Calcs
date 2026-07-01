@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Landmark, Activity, Settings, Sparkles, HelpCircle, FileText
+  Landmark, Activity, Settings, Sparkles, HelpCircle, FileText, Scale
 } from 'lucide-react';
 
 import { FinancialScenario, TaxYear, DynamicTaxConfig, SuburbData } from './types';
@@ -20,6 +20,7 @@ import {
 
 import HomeDashboard from './components/HomeDashboard';
 import SettingsPanel from './components/SettingsPanel';
+import PropertyExitPlanner from './components/PropertyExitPlanner';
 
 const LOCAL_STORAGE_KEY = 'property_dashboard_scenarios';
 
@@ -102,8 +103,8 @@ export default function App() {
   const [monthlySavingsContribution, setMonthlySavingsContribution] = useState(() => getSavedInput('monthlySavingsContribution', 2500));
   const [savingsAnnualReturnRate, setSavingsAnnualReturnRate] = useState(() => getSavedInput('savingsAnnualReturnRate', 5.0));
 
-  // Simplified Active tab: 'home' for Output, 'settings' for Input configuration
-  const [activeTab, setActiveTab] = useState<'home' | 'settings'>('home');
+  // Simplified Active tab: 'home' for Output, 'settings' for Input configuration, 'exit-planner' for Exit/Sale decision
+  const [activeTab, setActiveTab] = useState<'home' | 'settings' | 'exit-planner'>('home');
 
   // Persistence triggers
   useEffect(() => {
@@ -200,7 +201,7 @@ export default function App() {
         propertyPrice,
         customGrowthRate: propertyInflationEnabled ? customGrowthRate : 0,
         isFirstHomeBuyer,
-        cashAssets: cashAssets + existingEquity,
+        cashAssets: cashAssets,
         sharesAssets,
         otherAssets,
         currentSimDate,
@@ -208,7 +209,14 @@ export default function App() {
         monthlySavingsContribution,
         savingsAnnualReturnRate,
         interestFreeLoanActive,
-        interestFreeLoanAmount
+        interestFreeLoanAmount,
+        existingPropertyValue,
+        existingPropertyLoan,
+        useExistingEquity,
+        salary1,
+        salary2,
+        taxYear,
+        dynamicTaxConfig
       });
       finalPropertyPrice = sim.futurePropertyPrice;
       finalStampDuty = sim.futureStampDuty;
@@ -450,7 +458,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
         
         {/* Simple Page-Switcher Tabs */}
-        <div className="flex bg-slate-900/40 border border-slate-900 rounded-2xl p-1.5 max-w-md" id="navigation-rail">
+        <div className="flex bg-slate-900/40 border border-slate-900 rounded-2xl p-1.5 max-w-xl" id="navigation-rail">
           <button
             onClick={() => setActiveTab('home')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
@@ -473,6 +481,18 @@ export default function App() {
           >
             <Settings className="w-4 h-4" />
             <span>Planner Settings (Inputs)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('exit-planner')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              activeTab === 'exit-planner'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Scale className="w-4 h-4" />
+            <span>Property Exit Planner</span>
           </button>
         </div>
 
@@ -521,7 +541,7 @@ export default function App() {
                 onUpdate={handleUpdateFields}
                 onNavigateToSettings={() => setActiveTab('settings')}
               />
-            ) : (
+            ) : activeTab === 'settings' ? (
               <SettingsPanel
                 propertyPrice={propertyPrice}
                 isFirstHomeBuyer={isFirstHomeBuyer}
@@ -561,6 +581,16 @@ export default function App() {
                 onLoadScenario={handleLoadScenario}
                 onDeleteScenario={handleDeleteScenario}
                 onImportSettings={handleImportSettings}
+              />
+            ) : (
+              <PropertyExitPlanner
+                salary1={salary1}
+                salary2={salary2}
+                taxYear={taxYear}
+                dynamicTaxConfig={dynamicTaxConfig}
+                defaultPropertyValue={existingPropertyValue}
+                defaultPropertyLoan={existingPropertyLoan}
+                monthlyExpenses={monthlyExpenses}
               />
             )}
           </motion.div>
