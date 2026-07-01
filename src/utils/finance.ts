@@ -46,16 +46,22 @@ export function calculateNSWIncomeTax(
   // Use dynamic tax configuration if matches the selected tax year
   if (dynamicTaxConfig && taxYear === dynamicTaxConfig.financialYear) {
     const brackets = [...dynamicTaxConfig.brackets].sort((a, b) => a.min - b.min);
-    let matchedBracket = brackets[0];
+    let matchedBracketIndex = 0;
 
-    for (const b of brackets) {
-      if (taxableIncome >= b.min) {
-        matchedBracket = b;
+    for (let i = 0; i < brackets.length; i++) {
+      if (taxableIncome >= brackets[i].min) {
+        matchedBracketIndex = i;
       }
     }
 
+    const matchedBracket = brackets[matchedBracketIndex];
     if (matchedBracket) {
-      incomeTax = matchedBracket.base + (taxableIncome - (matchedBracket.min - 1 || 0)) * matchedBracket.rate;
+      // Find the deduction threshold (the upper limit of the previous bracket)
+      // Standardizes inclusive (18201) vs exclusive (18200) bracket boundaries robustly.
+      const prevBracketLimit = matchedBracketIndex > 0 
+        ? (brackets[matchedBracketIndex - 1].max ?? (brackets[matchedBracketIndex].min - 1)) 
+        : 0;
+      incomeTax = matchedBracket.base + (taxableIncome - prevBracketLimit) * matchedBracket.rate;
       marginalRate = matchedBracket.rate * 100;
     }
     medicareLevyRate = dynamicTaxConfig.medicareLevyRate;
@@ -280,21 +286,20 @@ export function simulateMortgagePayoff(
         totalInterestAcc += interestAcc;
         
         // Accelerated payment is minimum mortgage repayment + extra repayment.
-        // Capped by leftover household cashflow BEFORE applying extra repayment
-        const maximumFeasibleExtra = Math.max(
-          0,
-          householdMonthlyNetIncome - monthlyExpenses - standardMonthlyPayment - currentMonthInterestFreePayment
-        );
+        // Can be funded by either monthly net surplus OR existing offset balance.
+        const monthlyNetSurplus = householdMonthlyNetIncome - monthlyExpenses - standardMonthlyPayment - currentMonthInterestFreePayment;
+        const maxAllowedExtra = Math.max(0, monthlyNetSurplus + offsetBalanceAcc);
         
-        const appliedExtra = Math.min(monthlyExtraRepayment, maximumFeasibleExtra);
+        const appliedExtra = Math.min(monthlyExtraRepayment, maxAllowedExtra);
         const totalAccScheduledPayment = standardMonthlyPayment + appliedExtra;
         const paymentAcc = Math.min(balanceAcc + interestAcc, totalAccScheduledPayment);
         
         balanceAcc = balanceAcc + interestAcc - paymentAcc;
         monthsAcc = m;
 
-        // Add remaining cashflow surplus to offset balance
-        // If household cashflow is in deficit, it is deducted from the offset account balance.
+        // Add remaining cashflow surplus to offset balance.
+        // If household cashflow is in deficit (e.g. extra repayments exceed monthly surplus), 
+        // it is correctly drawn down from the offset account balance.
         const accSurplus = householdMonthlyNetIncome - monthlyExpenses - paymentAcc - currentMonthInterestFreePayment;
         offsetBalanceAcc = Math.max(0, offsetBalanceAcc + accSurplus);
       }
