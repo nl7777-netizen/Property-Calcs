@@ -66,6 +66,7 @@ export interface FinancialScenario {
   purchaseSimDate?: string; // e.g. "2028-06"
   monthlySavingsContribution?: number;
   savingsAnnualReturnRate?: number;
+  exitPlannerInputs?: any;
 }
 
 export interface SuburbData {

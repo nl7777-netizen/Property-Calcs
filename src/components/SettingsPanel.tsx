@@ -18,8 +18,6 @@ import {
   simulateMortgagePayoff,
   calculateFuturePurchaseSimulation
 } from '../utils/finance';
-import SavedScenarios from './SavedScenarios';
-import SettingsSync from './SettingsSync';
 
 interface SettingsPanelProps {
   // Property details
@@ -68,16 +66,11 @@ interface SettingsPanelProps {
 
   dynamicTaxConfig?: DynamicTaxConfig;
   suburbsList: SuburbData[];
-  savedScenarios: FinancialScenario[];
 
   // Callbacks
   onUpdate: (fields: any) => void;
   onSyncTaxConfig: (config: DynamicTaxConfig) => void;
   onAddSuburb: (newSuburb: SuburbData) => void;
-  onSaveScenario: (name: string) => void;
-  onLoadScenario: (s: FinancialScenario) => void;
-  onDeleteScenario: (id: string) => void;
-  onImportSettings: (importedData: any) => void;
 }
 
 export default function SettingsPanel({
@@ -111,16 +104,11 @@ export default function SettingsPanel({
   savingsAnnualReturnRate,
   dynamicTaxConfig,
   suburbsList,
-  savedScenarios,
   onUpdate,
   onSyncTaxConfig,
-  onAddSuburb,
-  onSaveScenario,
-  onLoadScenario,
-  onDeleteScenario,
-  onImportSettings
+  onAddSuburb
 }: SettingsPanelProps) {
-  const [activeConfigTab, setActiveConfigTab] = useState<'budget' | 'property' | 'scenarios'>('budget');
+  const [activeConfigTab, setActiveConfigTab] = useState<'budget' | 'property'>('budget');
   const [isSyncingTax, setIsSyncingTax] = useState(false);
   const [taxSyncError, setTaxSyncError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -333,16 +321,6 @@ export default function SettingsPanel({
             }`}
           >
             2. Property & Loans
-          </button>
-          <button
-            onClick={() => setActiveConfigTab('scenarios')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              activeConfigTab === 'scenarios'
-                ? 'bg-emerald-500 text-slate-950 font-bold shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            3. Saved Scenarios & Sync
           </button>
         </div>
       </div>
@@ -975,87 +953,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* TAB 3: SCENARIOS SAVING, MATRIX & SHARING CODES */}
-          {activeConfigTab === 'scenarios' && (
-            <div className="space-y-6" id="tab-scenarios-configs">
-              
-              {/* Scenario list, saving form and comparison matrix */}
-              <SavedScenarios
-                currentScenario={{
-                  propertyPrice,
-                  isFirstHomeBuyer,
-                  suburb,
-                  customGrowthRate,
-                  salary1,
-                  salary2,
-                  taxYear,
-                  cashAssets,
-                  sharesAssets,
-                  otherAssets,
-                  interestFreeLoanActive,
-                  interestFreeLoanAmount,
-                  interestFreeLoanRepaymentYear,
-                  mortgageTermYears,
-                  interestRatePrimary,
-                  interestRateScenarioB,
-                  interestRateScenarioC,
-                  monthlyExpenses,
-                  monthlyExtraRepayment,
-                  simulateFuturePurchase,
-                  currentSimDate,
-                  purchaseSimDate,
-                  monthlySavingsContribution,
-                  savingsAnnualReturnRate,
-                  existingPropertyValue,
-                  existingPropertyLoan,
-                  useExistingEquity
-                }}
-                savedScenarios={savedScenarios}
-                onSave={onSaveScenario}
-                onLoad={onLoadScenario}
-                onDelete={onDeleteScenario}
-              />
 
-              {/* Wire sync sharing component */}
-              <SettingsSync
-                currentInputs={{
-                  propertyPrice,
-                  isFirstHomeBuyer,
-                  suburb,
-                  customGrowthRate,
-                  salary1,
-                  salary2,
-                  taxYear,
-                  cashAssets,
-                  sharesAssets,
-                  otherAssets,
-                  interestFreeLoanActive,
-                  interestFreeLoanAmount,
-                  interestFreeLoanRepaymentYear,
-                  mortgageTermYears,
-                  interestRatePrimary,
-                  interestRateScenarioB,
-                  interestRateScenarioC,
-                  monthlyExpenses,
-                  monthlyExtraRepayment,
-                  simulateFuturePurchase,
-                  propertyInflationEnabled,
-                  currentSimDate,
-                  purchaseSimDate,
-                  monthlySavingsContribution,
-                  savingsAnnualReturnRate,
-                  existingPropertyValue,
-                  existingPropertyLoan,
-                  useExistingEquity
-                }}
-                savedScenarios={savedScenarios}
-                suburbsList={suburbsList}
-                dynamicTaxConfig={dynamicTaxConfig}
-                onImport={onImportSettings}
-              />
-
-            </div>
-          )}
 
         </motion.div>
       </AnimatePresence>

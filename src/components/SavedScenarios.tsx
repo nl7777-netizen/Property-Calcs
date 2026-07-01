@@ -328,6 +328,47 @@ export default function SavedScenarios({
                       );
                     })}
                   </tr>
+                  {comparedScenarios.some(s => s.exitPlannerInputs) && (
+                    <>
+                      <tr className="border-t border-slate-800/60 bg-slate-900/10">
+                        <td colSpan={comparedScenarios.length + 1} className="p-2 py-1.5 text-[9px] font-bold text-indigo-400 uppercase tracking-wider">
+                          Exit Planner Variables
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-950/20">
+                        <td className="p-2 py-2 font-medium text-slate-400">Exit Prop Value</td>
+                        {comparedScenarios.map((s) => (
+                          <td key={s.id} className="p-2 text-center font-mono text-slate-300">
+                            {s.exitPlannerInputs?.currentPropertyValue ? `$${s.exitPlannerInputs.currentPropertyValue.toLocaleString()}` : "—"}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr className="hover:bg-slate-950/20">
+                        <td className="p-2 py-2 font-medium text-slate-400">Holding Period</td>
+                        {comparedScenarios.map((s) => (
+                          <td key={s.id} className="p-2 text-center font-mono text-slate-300">
+                            {s.exitPlannerInputs?.holdingPeriodMonths ? `${s.exitPlannerInputs.holdingPeriodMonths} Mo` : "—"}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr className="hover:bg-slate-950/20">
+                        <td className="p-2 py-2 font-medium text-slate-400">Exit Mortgage Rate</td>
+                        {comparedScenarios.map((s) => (
+                          <td key={s.id} className="p-2 text-center font-mono text-slate-300">
+                            {s.exitPlannerInputs?.mortgageInterestRate ? `${s.exitPlannerInputs.mortgageInterestRate}%` : "—"}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr className="hover:bg-slate-950/20">
+                        <td className="p-2 py-2 font-medium text-slate-400">Exit Rental Income</td>
+                        {comparedScenarios.map((s) => (
+                          <td key={s.id} className="p-2 text-center font-mono text-slate-300">
+                            {s.exitPlannerInputs?.isRentedOut ? `Yes ($${s.exitPlannerInputs.weeklyRent}/wk)` : "No"}
+                          </td>
+                        ))}
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>

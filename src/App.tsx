@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Landmark, Activity, Settings, Sparkles, HelpCircle, FileText, Scale
+  Landmark, Activity, Settings, Sparkles, HelpCircle, FileText, Scale, Bookmark
 } from 'lucide-react';
 
 import { FinancialScenario, TaxYear, DynamicTaxConfig, SuburbData } from './types';
@@ -21,6 +21,8 @@ import {
 import HomeDashboard from './components/HomeDashboard';
 import SettingsPanel from './components/SettingsPanel';
 import PropertyExitPlanner from './components/PropertyExitPlanner';
+import SavedScenarios from './components/SavedScenarios';
+import SettingsSync from './components/SettingsSync';
 
 const LOCAL_STORAGE_KEY = 'property_dashboard_scenarios';
 
@@ -103,8 +105,17 @@ export default function App() {
   const [monthlySavingsContribution, setMonthlySavingsContribution] = useState(() => getSavedInput('monthlySavingsContribution', 2500));
   const [savingsAnnualReturnRate, setSavingsAnnualReturnRate] = useState(() => getSavedInput('savingsAnnualReturnRate', 5.0));
 
-  // Simplified Active tab: 'home' for Output, 'settings' for Input configuration, 'exit-planner' for Exit/Sale decision
-  const [activeTab, setActiveTab] = useState<'home' | 'settings' | 'exit-planner'>('home');
+  const [exitPlannerInputs, setExitPlannerInputs] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem('property_dashboard_exit_planner_inputs');
+      return stored ? JSON.parse(stored) : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+
+  // Active tab: 'home' for Output, 'settings' for Input configuration, 'exit-planner' for Exit/Sale decision, 'scenarios' for Saved Scenarios & Sync
+  const [activeTab, setActiveTab] = useState<'home' | 'settings' | 'exit-planner' | 'scenarios'>('home');
 
   // Persistence triggers
   useEffect(() => {
@@ -350,7 +361,8 @@ export default function App() {
       savingsAnnualReturnRate,
       existingPropertyValue,
       existingPropertyLoan,
-      useExistingEquity
+      useExistingEquity,
+      exitPlannerInputs
     };
 
     setSavedScenarios([...savedScenarios, newScenario]);
@@ -387,6 +399,10 @@ export default function App() {
     setExistingPropertyLoan(s.existingPropertyLoan ?? 0);
     setUseExistingEquity(s.useExistingEquity ?? true);
     
+    if (s.exitPlannerInputs) {
+      setExitPlannerInputs(s.exitPlannerInputs);
+    }
+    
     // Auto-return to home screen to review the loaded metrics
     setActiveTab('home');
   };
@@ -398,6 +414,9 @@ export default function App() {
   const handleImportSettings = (imported: any) => {
     if (imported.activeInputs) {
       handleUpdateFields(imported.activeInputs);
+    }
+    if (imported.exitPlannerInputs) {
+      setExitPlannerInputs(imported.exitPlannerInputs);
     }
     if (imported.savedScenarios) {
       setSavedScenarios(imported.savedScenarios);
@@ -458,7 +477,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
         
         {/* Simple Page-Switcher Tabs */}
-        <div className="flex bg-slate-900/40 border border-slate-900 rounded-2xl p-1.5 max-w-xl" id="navigation-rail">
+        <div className="flex bg-slate-900/40 border border-slate-900 rounded-2xl p-1.5 max-w-3xl gap-1.5" id="navigation-rail">
           <button
             onClick={() => setActiveTab('home')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
@@ -468,7 +487,7 @@ export default function App() {
             }`}
           >
             <Activity className="w-4 h-4" />
-            <span>Home (Outputs & Analysis)</span>
+            <span>Home (Outputs)</span>
           </button>
           
           <button
@@ -480,7 +499,7 @@ export default function App() {
             }`}
           >
             <Settings className="w-4 h-4" />
-            <span>Planner Settings (Inputs)</span>
+            <span>Planner Settings</span>
           </button>
 
           <button
@@ -492,7 +511,19 @@ export default function App() {
             }`}
           >
             <Scale className="w-4 h-4" />
-            <span>Property Exit Planner</span>
+            <span>Exit Planner</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('scenarios')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              activeTab === 'scenarios'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Bookmark className="w-4 h-4" />
+            <span>Saved Scenarios & Sync</span>
           </button>
         </div>
 
@@ -573,16 +604,11 @@ export default function App() {
                 savingsAnnualReturnRate={savingsAnnualReturnRate}
                 dynamicTaxConfig={dynamicTaxConfig}
                 suburbsList={suburbsList}
-                savedScenarios={savedScenarios}
                 onUpdate={handleUpdateFields}
                 onSyncTaxConfig={(config) => setDynamicTaxConfig(config)}
                 onAddSuburb={(newSub) => setSuburbsList((prev) => [...prev, newSub])}
-                onSaveScenario={handleSaveScenario}
-                onLoadScenario={handleLoadScenario}
-                onDeleteScenario={handleDeleteScenario}
-                onImportSettings={handleImportSettings}
               />
-            ) : (
+            ) : activeTab === 'exit-planner' ? (
               <PropertyExitPlanner
                 salary1={salary1}
                 salary2={salary2}
@@ -591,7 +617,86 @@ export default function App() {
                 defaultPropertyValue={existingPropertyValue}
                 defaultPropertyLoan={existingPropertyLoan}
                 monthlyExpenses={monthlyExpenses}
+                loadedInputs={exitPlannerInputs}
+                onUpdateInputs={(inputs) => setExitPlannerInputs(inputs)}
               />
+            ) : (
+              <div className="space-y-6" id="scenarios-sync-tab-content">
+                <SavedScenarios
+                  currentScenario={{
+                    propertyPrice,
+                    isFirstHomeBuyer,
+                    suburb,
+                    customGrowthRate,
+                    salary1,
+                    salary2,
+                    taxYear,
+                    cashAssets,
+                    sharesAssets,
+                    otherAssets,
+                    interestFreeLoanActive,
+                    interestFreeLoanAmount,
+                    interestFreeLoanRepaymentYear,
+                    mortgageTermYears,
+                    interestRatePrimary,
+                    interestRateScenarioB,
+                    interestRateScenarioC,
+                    monthlyExpenses,
+                    monthlyExtraRepayment,
+                    simulateFuturePurchase,
+                    currentSimDate,
+                    purchaseSimDate,
+                    monthlySavingsContribution,
+                    savingsAnnualReturnRate,
+                    existingPropertyValue,
+                    existingPropertyLoan,
+                    useExistingEquity,
+                    exitPlannerInputs
+                  }}
+                  savedScenarios={savedScenarios}
+                  onSave={handleSaveScenario}
+                  onLoad={handleLoadScenario}
+                  onDelete={handleDeleteScenario}
+                />
+
+                <SettingsSync
+                  currentInputs={{
+                    propertyPrice,
+                    isFirstHomeBuyer,
+                    suburb,
+                    customGrowthRate,
+                    salary1,
+                    salary2,
+                    taxYear,
+                    cashAssets,
+                    sharesAssets,
+                    otherAssets,
+                    interestFreeLoanActive,
+                    interestFreeLoanAmount,
+                    interestFreeLoanRepaymentYear,
+                    mortgageTermYears,
+                    interestRatePrimary,
+                    interestRateScenarioB,
+                    interestRateScenarioC,
+                    monthlyExpenses,
+                    monthlyExtraRepayment,
+                    simulateFuturePurchase,
+                    propertyInflationEnabled,
+                    currentSimDate,
+                    purchaseSimDate,
+                    monthlySavingsContribution,
+                    savingsAnnualReturnRate,
+                    existingPropertyValue,
+                    existingPropertyLoan,
+                    useExistingEquity
+                  }}
+                  exitPlannerInputs={exitPlannerInputs}
+                  savedScenarios={savedScenarios}
+                  suburbsList={suburbsList}
+                  dynamicTaxConfig={dynamicTaxConfig}
+                  onImport={handleImportSettings}
+                />
+              </div>
             )}
           </motion.div>
         </AnimatePresence>

@@ -15,6 +15,8 @@ interface PropertyExitPlannerProps {
   defaultPropertyValue?: number;
   defaultPropertyLoan?: number;
   monthlyExpenses?: number;
+  loadedInputs?: any;
+  onUpdateInputs?: (inputs: any) => void;
 }
 
 const getSavedExitPlannerInput = (key: string, defaultValue: any) => {
@@ -35,7 +37,9 @@ export default function PropertyExitPlanner({
   dynamicTaxConfig,
   defaultPropertyValue = 600000,
   defaultPropertyLoan = 400000,
-  monthlyExpenses = 3800
+  monthlyExpenses = 3800,
+  loadedInputs,
+  onUpdateInputs
 }: PropertyExitPlannerProps) {
   // Input States
   const [originalPurchasePrice, setOriginalPurchasePrice] = useState(() => getSavedExitPlannerInput('originalPurchasePrice', 450000));
@@ -73,7 +77,7 @@ export default function PropertyExitPlanner({
   const [taxRateSelection, setTaxRateSelection] = useState<'lower' | 'higher' | 'custom' | 'none'>(() => getSavedExitPlannerInput('taxRateSelection', 'lower'));
   const [customTaxRate, setCustomTaxRate] = useState(() => getSavedExitPlannerInput('customTaxRate', 32.5));
 
-  // Save changes to localStorage
+  // Save changes to localStorage and notify parent App
   useEffect(() => {
     const inputs = {
       originalPurchasePrice,
@@ -101,6 +105,9 @@ export default function PropertyExitPlanner({
       customTaxRate
     };
     localStorage.setItem('property_dashboard_exit_planner_inputs', JSON.stringify(inputs));
+    if (onUpdateInputs) {
+      onUpdateInputs(inputs);
+    }
   }, [
     originalPurchasePrice,
     currentPropertyValue,
@@ -124,8 +131,84 @@ export default function PropertyExitPlanner({
     agentManagementPercent,
     reinvestmentReturnRate,
     taxRateSelection,
-    customTaxRate
+    customTaxRate,
+    onUpdateInputs
   ]);
+
+  // Load inputs when loadedInputs changes from parent App
+  useEffect(() => {
+    if (loadedInputs) {
+      if (loadedInputs.originalPurchasePrice !== undefined && loadedInputs.originalPurchasePrice !== originalPurchasePrice) {
+        setOriginalPurchasePrice(loadedInputs.originalPurchasePrice);
+      }
+      if (loadedInputs.currentPropertyValue !== undefined && loadedInputs.currentPropertyValue !== currentPropertyValue) {
+        setCurrentPropertyValue(loadedInputs.currentPropertyValue);
+      }
+      if (loadedInputs.currentMortgageBalance !== undefined && loadedInputs.currentMortgageBalance !== currentMortgageBalance) {
+        setCurrentMortgageBalance(loadedInputs.currentMortgageBalance);
+      }
+      if (loadedInputs.isPrimaryResidence !== undefined && loadedInputs.isPrimaryResidence !== isPrimaryResidence) {
+        setIsPrimaryResidence(loadedInputs.isPrimaryResidence);
+      }
+      if (loadedInputs.heldForMoreThan12Months !== undefined && loadedInputs.heldForMoreThan12Months !== heldForMoreThan12Months) {
+        setHeldForMoreThan12Months(loadedInputs.heldForMoreThan12Months);
+      }
+      if (loadedInputs.agentCommissionPercent !== undefined && loadedInputs.agentCommissionPercent !== agentCommissionPercent) {
+        setAgentCommissionPercent(loadedInputs.agentCommissionPercent);
+      }
+      if (loadedInputs.marketingCosts !== undefined && loadedInputs.marketingCosts !== marketingCosts) {
+        setMarketingCosts(loadedInputs.marketingCosts);
+      }
+      if (loadedInputs.conveyancingFees !== undefined && loadedInputs.conveyancingFees !== conveyancingFees) {
+        setConveyancingFees(loadedInputs.conveyancingFees);
+      }
+      if (loadedInputs.otherExitFees !== undefined && loadedInputs.otherExitFees !== otherExitFees) {
+        setOtherExitFees(loadedInputs.otherExitFees);
+      }
+      if (loadedInputs.holdingPeriodMonths !== undefined && loadedInputs.holdingPeriodMonths !== holdingPeriodMonths) {
+        setHoldingPeriodMonths(loadedInputs.holdingPeriodMonths);
+      }
+      if (loadedInputs.futurePropertyValueOption !== undefined && loadedInputs.futurePropertyValueOption !== futurePropertyValueOption) {
+        setFuturePropertyValueOption(loadedInputs.futurePropertyValueOption);
+      }
+      if (loadedInputs.futurePropertyGrowthRate !== undefined && loadedInputs.futurePropertyGrowthRate !== futurePropertyGrowthRate) {
+        setFuturePropertyGrowthRate(loadedInputs.futurePropertyGrowthRate);
+      }
+      if (loadedInputs.futurePropertyValueFixed !== undefined && loadedInputs.futurePropertyValueFixed !== futurePropertyValueFixed) {
+        setFuturePropertyValueFixed(loadedInputs.futurePropertyValueFixed);
+      }
+      if (loadedInputs.mortgageInterestRate !== undefined && loadedInputs.mortgageInterestRate !== mortgageInterestRate) {
+        setMortgageInterestRate(loadedInputs.mortgageInterestRate);
+      }
+      if (loadedInputs.mortgageRepaymentType !== undefined && loadedInputs.mortgageRepaymentType !== mortgageRepaymentType) {
+        setMortgageRepaymentType(loadedInputs.mortgageRepaymentType);
+      }
+      if (loadedInputs.mortgageRemainingTermYears !== undefined && loadedInputs.mortgageRemainingTermYears !== mortgageRemainingTermYears) {
+        setMortgageRemainingTermYears(loadedInputs.mortgageRemainingTermYears);
+      }
+      if (loadedInputs.annualHoldingCosts !== undefined && loadedInputs.annualHoldingCosts !== annualHoldingCosts) {
+        setAnnualHoldingCosts(loadedInputs.annualHoldingCosts);
+      }
+      if (loadedInputs.isRentedOut !== undefined && loadedInputs.isRentedOut !== isRentedOut) {
+        setIsRentedOut(loadedInputs.isRentedOut);
+      }
+      if (loadedInputs.weeklyRent !== undefined && loadedInputs.weeklyRent !== weeklyRent) {
+        setWeeklyRent(loadedInputs.weeklyRent);
+      }
+      if (loadedInputs.agentManagementPercent !== undefined && loadedInputs.agentManagementPercent !== agentManagementPercent) {
+        setAgentManagementPercent(loadedInputs.agentManagementPercent);
+      }
+      if (loadedInputs.reinvestmentReturnRate !== undefined && loadedInputs.reinvestmentReturnRate !== reinvestmentReturnRate) {
+        setReinvestmentReturnRate(loadedInputs.reinvestmentReturnRate);
+      }
+      if (loadedInputs.taxRateSelection !== undefined && loadedInputs.taxRateSelection !== taxRateSelection) {
+        setTaxRateSelection(loadedInputs.taxRateSelection);
+      }
+      if (loadedInputs.customTaxRate !== undefined && loadedInputs.customTaxRate !== customTaxRate) {
+        setCustomTaxRate(loadedInputs.customTaxRate);
+      }
+    }
+  }, [loadedInputs]);
 
   // Info Modal states
   const [showCGTInfo, setShowCGTInfo] = useState(false);

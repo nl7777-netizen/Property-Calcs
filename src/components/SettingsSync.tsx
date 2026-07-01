@@ -42,11 +42,13 @@ interface SettingsSyncProps {
     existingPropertyLoan: number;
     useExistingEquity: boolean;
   };
+  exitPlannerInputs?: any;
   savedScenarios: FinancialScenario[];
   suburbsList: SuburbData[];
   dynamicTaxConfig?: DynamicTaxConfig;
   onImport: (importedData: {
     activeInputs: any;
+    exitPlannerInputs?: any;
     savedScenarios: FinancialScenario[];
     suburbsList?: SuburbData[];
     dynamicTaxConfig?: DynamicTaxConfig;
@@ -55,6 +57,7 @@ interface SettingsSyncProps {
 
 export default function SettingsSync({
   currentInputs,
+  exitPlannerInputs,
   savedScenarios,
   suburbsList,
   dynamicTaxConfig,
@@ -71,9 +74,10 @@ export default function SettingsSync({
   // Helper: Prepare export package
   const generateExportPayload = () => {
     return {
-      version: '1.1',
+      version: '1.2',
       exportedAt: new Date().toISOString(),
       activeInputs: currentInputs,
+      exitPlannerInputs: exitPlannerInputs,
       savedScenarios: savedScenarios,
       suburbsList: suburbsList,
       dynamicTaxConfig: dynamicTaxConfig
@@ -169,6 +173,7 @@ export default function SettingsSync({
 
     onImport({
       activeInputs: data.activeInputs,
+      exitPlannerInputs: data.exitPlannerInputs,
       savedScenarios: data.savedScenarios || [],
       suburbsList: data.suburbsList,
       dynamicTaxConfig: data.dynamicTaxConfig
