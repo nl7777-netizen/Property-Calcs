@@ -57,6 +57,11 @@ export interface FinancialScenario {
 
   // Cashflow
   monthlyExpenses: number;
+  monthlyPropertyStrata?: number;
+  monthlyPropertyCouncil?: number;
+  monthlyPropertyInsurance?: number;
+  monthlyPropertyWater?: number;
+  monthlyPropertyUtilities?: number;
   monthlyExtraRepayment: number;
 
   // Future Purchase Simulation

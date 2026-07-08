@@ -39,6 +39,10 @@ interface HomeDashboardProps {
   interestRateScenarioB: number;
   interestRateScenarioC: number;
   monthlyExpenses: number;
+  monthlyPropertyStrata: number;
+  monthlyPropertyCouncil: number;
+  monthlyPropertyInsurance: number;
+  monthlyPropertyUtilities: number;
   monthlyExtraRepayment: number;
   existingPropertyValue: number;
   existingPropertyLoan: number;
@@ -53,6 +57,10 @@ interface HomeDashboardProps {
   suburbsList: SuburbData[];
   onUpdate?: (fields: any) => void;
   onNavigateToSettings: () => void;
+  monthlyPropertyWater?: number;
+  exitPlannerInputs?: any;
+  activeMonthlySurplus?: number;
+  monthlyExpensesWithParents?: number;
 }
 
 export default function HomeDashboard({
@@ -74,6 +82,10 @@ export default function HomeDashboard({
   interestRateScenarioB,
   interestRateScenarioC,
   monthlyExpenses,
+  monthlyPropertyStrata,
+  monthlyPropertyCouncil,
+  monthlyPropertyInsurance,
+  monthlyPropertyUtilities,
   monthlyExtraRepayment,
   existingPropertyValue,
   existingPropertyLoan,
@@ -87,11 +99,245 @@ export default function HomeDashboard({
   dynamicTaxConfig,
   suburbsList,
   onUpdate,
-  onNavigateToSettings
+  onNavigateToSettings,
+  monthlyPropertyWater = 300,
+  exitPlannerInputs,
+  activeMonthlySurplus,
+  monthlyExpensesWithParents = 1200
 }: HomeDashboardProps) {
   const [chartTab, setChartTab] = useState<'chart' | 'table'>('chart');
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // --- SELF-CONTAINED DYNAMIC EXIT PLANNER SIMULATION ENGINE ---
+  const exitSim = useMemo(() => {
+    const inputs = exitPlannerInputs || {};
+    
+    // Resolve all inputs with defaults to match PropertyExitPlanner exactly
+    const originalPurchasePrice = inputs.originalPurchasePrice ?? 450000;
+    const currentPropertyValue = inputs.currentPropertyValue ?? (existingPropertyValue > 0 ? existingPropertyValue : 600000);
+    const currentMortgageBalance = inputs.currentMortgageBalance ?? (existingPropertyLoan > 0 ? existingPropertyLoan : 400000);
+    const isPrimaryResidence = inputs.isPrimaryResidence ?? true;
+    const heldForMoreThan12Months = inputs.heldForMoreThan12Months ?? true;
+    const agentCommissionPercent = inputs.agentCommissionPercent ?? 2.0;
+    const marketingCosts = inputs.marketingCosts ?? 3000;
+    const conveyancingFees = inputs.conveyancingFees ?? 1500;
+    const otherExitFees = inputs.otherExitFees ?? 1000;
+    const holdingPeriodMonths = inputs.holdingPeriodMonths ?? 24;
+    const futurePropertyValueOption = inputs.futurePropertyValueOption ?? 'growth';
+    const futurePropertyGrowthRate = inputs.futurePropertyGrowthRate ?? 5.0;
+    const futurePropertyValueFixed = inputs.futurePropertyValueFixed ?? 660000;
+    const mortgageInterestRate = inputs.mortgageInterestRate ?? 6.1;
+    const mortgageRepaymentType = inputs.mortgageRepaymentType ?? 'pi';
+    const mortgageRemainingTermYears = inputs.mortgageRemainingTermYears ?? 25;
+    const annualHoldingCosts = inputs.annualHoldingCosts ?? 3800;
+    const annualInsurance = inputs.annualInsurance ?? 1200;
+    const isRentedOut = inputs.isRentedOut ?? false;
+    const weeklyRent = inputs.weeklyRent ?? 550;
+    const agentManagementPercent = inputs.agentManagementPercent ?? 7.0;
+    const reinvestmentReturnRate = inputs.reinvestmentReturnRate ?? 5.0;
+    const monthlyExpensesWithParentsInput = inputs.monthlyExpensesWithParents ?? monthlyExpensesWithParents;
+    const taxRateSelection = inputs.taxRateSelection ?? 'lower';
+    const customTaxRate = inputs.customTaxRate ?? 32.5;
+
+    // We also need building expenses & utilities from main app
+    const monthlyStrata = monthlyPropertyStrata || 0;
+    const monthlyCouncil = monthlyPropertyCouncil || 0;
+    const monthlyInsuranceVal = monthlyPropertyInsurance || 0;
+    const monthlyWater = monthlyPropertyWater || 0;
+    const monthlyBuildingExpenses = monthlyStrata + monthlyCouncil + monthlyInsuranceVal;
+    const monthlyUtilities = monthlyPropertyUtilities || 0;
+
+    const N = holdingPeriodMonths;
+    const years = N / 12;
+
+    // Resolve tax rates
+    const taxBreakdown1 = calculateNSWIncomeTax(salary1, taxYear, dynamicTaxConfig);
+    const taxBreakdown2 = calculateNSWIncomeTax(salary2, taxYear, dynamicTaxConfig);
+    const netMonthly1 = taxBreakdown1.netPay / 12;
+    const netMonthly2 = taxBreakdown2.netPay / 12;
+    const combinedNetMonthly = netMonthly1 + netMonthly2;
+
+    const rate1 = taxBreakdown1.marginalRate + (salary1 > 24276 ? 2.0 : 0);
+    const rate2 = taxBreakdown2.marginalRate + (salary2 > 24276 ? 2.0 : 0);
+    const lowerRate = Math.min(rate1, rate2);
+    const higherRate = Math.max(rate1, rate2);
+
+    let activeRate = 0;
+    if (taxRateSelection === 'lower') activeRate = lowerRate / 100;
+    else if (taxRateSelection === 'higher') activeRate = higherRate / 100;
+    else if (taxRateSelection === 'custom') activeRate = customTaxRate / 100;
+    
+    const taxRate = activeRate;
+    const taxRateC = taxRate;
+
+    // SCENARIO A: SELL NOW & REINVEST
+    const agentFeeNow = currentPropertyValue * (agentCommissionPercent / 100);
+    const totalFeesNow = agentFeeNow + marketingCosts + conveyancingFees + otherExitFees;
+    
+    let cgtNow = 0;
+    let capitalGainNow = 0;
+    if (!isPrimaryResidence) {
+      capitalGainNow = currentPropertyValue - originalPurchasePrice - totalFeesNow;
+      if (capitalGainNow > 0) {
+        const taxableGainNow = heldForMoreThan12Months ? capitalGainNow * 0.5 : capitalGainNow;
+        cgtNow = taxableGainNow * taxRate;
+      }
+    }
+    const netCashProceedsNow = Math.max(0, currentPropertyValue - currentMortgageBalance - totalFeesNow - cgtNow);
+
+    const r_pre = (reinvestmentReturnRate / 100) / 12;
+    const r_post = r_pre * (1 - taxRate);
+    
+    const endingInitialCashA = netCashProceedsNow * Math.pow(1 + r_post, N);
+    
+    // SCENARIOS B & C MONTH-BY-MONTH SIMULATIONS
+    let balance = currentMortgageBalance;
+    const monthlyRate = (mortgageInterestRate / 100) / 12;
+    const totalTermMonths = mortgageRemainingTermYears * 12;
+    
+    let piMonthlyPayment = 0;
+    if (mortgageRepaymentType === 'pi' && totalTermMonths > 0 && monthlyRate > 0) {
+      piMonthlyPayment = currentMortgageBalance * 
+        (monthlyRate * Math.pow(1 + monthlyRate, totalTermMonths)) / 
+        (Math.pow(1 + monthlyRate, totalTermMonths) - 1);
+    }
+
+    const monthlyGrossRentC = (weeklyRent * 52) / 12;
+    const monthlyManagementFeeC = monthlyGrossRentC * (agentManagementPercent / 100);
+
+    const householdSurplus = Math.max(0, combinedNetMonthly - monthlyExpenses);
+    const householdSurplusC = Math.max(0, combinedNetMonthly - monthlyExpensesWithParentsInput);
+
+    const impliedAnnualGrowthRate = N > 0 && futurePropertyValueFixed > 0 && currentPropertyValue > 0
+      ? (Math.pow(futurePropertyValueFixed / currentPropertyValue, 12 / N) - 1) * 100
+      : 0;
+    const annualPropertyRate = futurePropertyValueOption === 'growth' ? futurePropertyGrowthRate : impliedAnnualGrowthRate;
+
+    let balanceC = currentMortgageBalance;
+    let accumulatedSurplusA = 0;
+    let accumulatedSurplusB = 0;
+    let accumulatedSurplusC = 0;
+    let cashSavedB = 0;
+    let cashSavedC = 0;
+
+    for (let m = 1; m <= N; m++) {
+      // Scenario B
+      const interest_m = balance * monthlyRate;
+      let payment_m = 0;
+      if (mortgageRepaymentType === 'pi') {
+        payment_m = piMonthlyPayment;
+      } else if (mortgageRepaymentType === 'max_cashflow') {
+        const availableMaxCashflow = householdSurplus - monthlyBuildingExpenses - monthlyUtilities;
+        payment_m = Math.max(interest_m, availableMaxCashflow);
+      } else {
+        payment_m = interest_m;
+      }
+      const principal_paid_m = Math.min(balance, Math.max(0, payment_m - interest_m));
+      payment_m = interest_m + principal_paid_m;
+      balance = balance - principal_paid_m;
+      const cashOutflow_m = payment_m + monthlyBuildingExpenses + monthlyUtilities;
+      const surplusB_m = combinedNetMonthly - monthlyExpenses - cashOutflow_m;
+      accumulatedSurplusB = (accumulatedSurplusB + surplusB_m) * (1 + r_post);
+      if (balance <= 0) {
+        cashSavedB = (cashSavedB + surplusB_m) * (1 + r_post);
+      }
+
+      // Scenario C
+      const interest_C_m = balanceC * monthlyRate;
+      let payment_C_m = 0;
+      if (mortgageRepaymentType === 'pi') {
+        payment_C_m = piMonthlyPayment;
+      } else if (mortgageRepaymentType === 'max_cashflow') {
+        const availableMaxCashflowC = combinedNetMonthly - monthlyExpensesWithParentsInput + (monthlyGrossRentC - monthlyManagementFeeC);
+        payment_C_m = Math.max(interest_C_m, availableMaxCashflowC);
+      } else {
+        payment_C_m = interest_C_m;
+      }
+      const principal_paid_C_m = Math.min(balanceC, Math.max(0, payment_C_m - interest_C_m));
+      payment_C_m = interest_C_m + principal_paid_C_m;
+      balanceC = balanceC - principal_paid_C_m;
+      const deductions_C_m = interest_C_m + monthlyBuildingExpenses + monthlyWater + monthlyManagementFeeC;
+      const taxableProfit_C_m = monthlyGrossRentC - deductions_C_m;
+      const taxImpact_C_m = taxableProfit_C_m * taxRateC;
+      const cashOutflow_C_m = payment_C_m + monthlyBuildingExpenses + monthlyWater + monthlyManagementFeeC - monthlyGrossRentC + taxImpact_C_m;
+      const surplusC_m = combinedNetMonthly - monthlyExpensesWithParentsInput - cashOutflow_C_m;
+      accumulatedSurplusC = (accumulatedSurplusC + surplusC_m) * (1 + r_post);
+      if (balanceC <= 0) {
+        cashSavedC = (cashSavedC + surplusC_m) * (1 + r_post);
+      }
+
+      // Scenario A
+      const surplusA_m = combinedNetMonthly - monthlyExpensesWithParentsInput;
+      accumulatedSurplusA = (accumulatedSurplusA + surplusA_m) * (1 + r_post);
+    }
+
+    const futurePropertyValue = futurePropertyValueOption === 'fixed'
+      ? futurePropertyValueFixed
+      : Math.round(currentPropertyValue * Math.pow(1 + futurePropertyGrowthRate / 100, years));
+
+    const agentFeeLater = futurePropertyValue * (agentCommissionPercent / 100);
+    const totalFeesLater = agentFeeLater + marketingCosts + conveyancingFees + otherExitFees;
+
+    let cgtLater = 0;
+    if (!isPrimaryResidence) {
+      const capitalGainLater = futurePropertyValue - originalPurchasePrice - totalFeesLater;
+      if (capitalGainLater > 0) {
+        const taxableGainLater = heldForMoreThan12Months ? capitalGainLater * 0.5 : capitalGainLater;
+        cgtLater = taxableGainLater * taxRate;
+      }
+    }
+
+    let cgtLaterC = 0;
+    if (!isPrimaryResidence) {
+      const capitalGainLaterC = futurePropertyValue - originalPurchasePrice - totalFeesLater;
+      if (capitalGainLaterC > 0) {
+        const taxableGainLaterC = heldForMoreThan12Months ? capitalGainLaterC * 0.5 : capitalGainLaterC;
+        cgtLaterC = taxableGainLaterC * taxRateC;
+      }
+    }
+
+    const netCashProceedsLater = Math.max(0, futurePropertyValue - balance - totalFeesLater - cgtLater);
+    const netCashProceedsLaterC = Math.max(0, futurePropertyValue - balanceC - totalFeesLater - cgtLaterC);
+
+    const totalWealthA = endingInitialCashA + accumulatedSurplusA;
+    const totalWealthB = netCashProceedsLater + cashSavedB;
+    const totalWealthC = netCashProceedsLaterC + cashSavedC;
+
+    const maxWealth = Math.max(totalWealthA, totalWealthB, totalWealthC);
+    const isASuperior = totalWealthA >= totalWealthB && totalWealthA >= totalWealthC;
+    const isBSuperior = totalWealthB >= totalWealthA && totalWealthB >= totalWealthC;
+    const isCSuperior = totalWealthC >= totalWealthA && totalWealthC >= totalWealthB;
+
+    let winningScenario = 'B';
+    if (isASuperior) winningScenario = 'A';
+    else if (isCSuperior) winningScenario = 'C';
+
+    return {
+      winningScenarioWealth: maxWealth,
+      winningScenario,
+      isASuperior,
+      isBSuperior,
+      isCSuperior,
+      monthlyExpensesWithParents: monthlyExpensesWithParentsInput,
+      holdingPeriodMonths
+    };
+  }, [
+    exitPlannerInputs,
+    existingPropertyValue,
+    existingPropertyLoan,
+    monthlyPropertyStrata,
+    monthlyPropertyCouncil,
+    monthlyPropertyInsurance,
+    monthlyPropertyWater,
+    monthlyPropertyUtilities,
+    salary1,
+    salary2,
+    taxYear,
+    dynamicTaxConfig,
+    monthlyExpenses,
+    monthlyExpensesWithParents
+  ]);
 
   // --- COMPREHENSIVE MATHS & LOGIC ON THE RECALCULATED INPUTS ---
   const calculatedValues = useMemo(() => {
@@ -115,6 +361,15 @@ export default function HomeDashboard({
     
     let futureSimInfo = null;
     if (simulateFuturePurchase) {
+      // Resolve the unified activeMonthlySurplus based on Phase 1 winning scenario
+      const isParentsLiving = exitSim.isASuperior || exitSim.isCSuperior;
+      const activeExpenses = isParentsLiving ? exitSim.monthlyExpensesWithParents : monthlyExpenses;
+      
+      const taxBreakdown1 = calculateNSWIncomeTax(salary1, taxYear, dynamicTaxConfig);
+      const taxBreakdown2 = calculateNSWIncomeTax(salary2, taxYear, dynamicTaxConfig);
+      const combinedNetMonthly = (taxBreakdown1.netPay + taxBreakdown2.netPay) / 12;
+      const activeMonthlySurplusCalculated = Math.max(0, combinedNetMonthly - activeExpenses);
+
       const sim = calculateFuturePurchaseSimulation({
         propertyPrice,
         customGrowthRate: propertyInflationEnabled ? customGrowthRate : 0,
@@ -124,7 +379,7 @@ export default function HomeDashboard({
         otherAssets,
         currentSimDate,
         purchaseSimDate,
-        monthlySavingsContribution,
+        monthlySavingsContribution: activeMonthlySurplusCalculated,
         savingsAnnualReturnRate,
         interestFreeLoanActive,
         interestFreeLoanAmount,
@@ -138,8 +393,19 @@ export default function HomeDashboard({
       });
       finalPropertyPrice = sim.futurePropertyPrice;
       finalStampDuty = sim.futureStampDuty;
-      finalTotalOffsetAssets = sim.accruedAssets;
-      futureSimInfo = sim;
+      
+      // Stop manually calculating the 'Future Deposit' in Phase 2 using generic equity.
+      // The Total Funding Pool (Future) MUST equal [The Consolidated Wealth from the Winning Phase 1 Scenario] + [Family Loan] + [Other Assets/Initial Asset Pool]
+      // Thus, finalTotalOffsetAssets = exitSim.winningScenarioWealth + (cashAssets + sharesAssets + otherAssets)
+      finalTotalOffsetAssets = existingPropertyValue > 0 
+        ? (exitSim.winningScenarioWealth + (cashAssets + sharesAssets + otherAssets))
+        : sim.accruedAssets;
+
+      futureSimInfo = {
+        ...sim,
+        accruedAssets: finalTotalOffsetAssets,
+        futureMortgageAmount: Math.max(0, finalPropertyPrice + finalStampDuty + conveyancingFees - finalTotalOffsetAssets - (interestFreeLoanActive ? interestFreeLoanAmount : 0))
+      };
     }
 
     const totalCosts = finalPropertyPrice + finalStampDuty + conveyancingFees;
@@ -152,12 +418,17 @@ export default function HomeDashboard({
     const combinedNetAnnual = tax1.netPay + tax2.netPay;
     const combinedNetMonthly = combinedNetAnnual / 12;
 
+    const isParentsLiving = exitSim.isASuperior || exitSim.isCSuperior;
+    const activeExpenses = isParentsLiving ? (monthlyExpensesWithParents ?? 1200) : monthlyExpenses;
+
+    const totalExpenses = activeExpenses + (monthlyPropertyStrata || 0) + (monthlyPropertyCouncil || 0) + (monthlyPropertyInsurance || 0) + (monthlyPropertyUtilities || 0);
+
     // Standard vs Accelerated payoff simulation
     const simulation = simulateMortgagePayoff(
       mortgageAmount,
       interestRatePrimary,
       mortgageTermYears,
-      monthlyExpenses,
+      totalExpenses,
       monthlyExtraRepayment,
       interestFreeLoanActive,
       interestFreeLoanAmount,
@@ -168,7 +439,7 @@ export default function HomeDashboard({
     // Minimum mortgage payment
     const minMortgagePayment = simulation.standardMonthlyPayment;
     const monthlyIFLRepayment = interestFreeLoanActive ? (interestFreeLoanRepaymentYear / 12) : 0;
-    const leftoverCashflow = Math.max(0, combinedNetMonthly - monthlyExpenses - minMortgagePayment - monthlyIFLRepayment);
+    const leftoverCashflow = Math.max(0, combinedNetMonthly - totalExpenses - minMortgagePayment - monthlyIFLRepayment);
 
     // Debt to Income (DTI)
     const dti = (salary1 + salary2) > 0 ? (mortgageAmount / (salary1 + salary2)) : 0;
@@ -276,7 +547,8 @@ export default function HomeDashboard({
       lmiApplicable,
       futureSimInfo,
       existingEquity,
-      monthlyIFLRepayment
+      monthlyIFLRepayment,
+      totalExpenses
     };
   }, [
     propertyPrice,
@@ -293,6 +565,10 @@ export default function HomeDashboard({
     mortgageTermYears,
     interestRatePrimary,
     monthlyExpenses,
+    monthlyPropertyStrata,
+    monthlyPropertyCouncil,
+    monthlyPropertyInsurance,
+    monthlyPropertyUtilities,
     monthlyExtraRepayment,
     interestFreeLoanRepaymentYear,
     simulateFuturePurchase,
@@ -346,7 +622,8 @@ export default function HomeDashboard({
     lmiApplicable,
     futureSimInfo,
     existingEquity,
-    monthlyIFLRepayment
+    monthlyIFLRepayment,
+    totalExpenses
   } = calculatedValues;
 
   // --- SENSITIVITY CALCS ---
@@ -364,7 +641,7 @@ export default function HomeDashboard({
         mortgageAmount,
         rObj.rate,
         mortgageTermYears,
-        monthlyExpenses,
+        totalExpenses,
         monthlyExtraRepayment,
         interestFreeLoanActive,
         interestFreeLoanAmount,
@@ -376,7 +653,7 @@ export default function HomeDashboard({
         mortgageAmount,
         interestRatePrimary,
         mortgageTermYears,
-        monthlyExpenses,
+        totalExpenses,
         monthlyExtraRepayment,
         interestFreeLoanActive,
         interestFreeLoanAmount,
@@ -401,7 +678,7 @@ export default function HomeDashboard({
     interestRatePrimary,
     interestRateScenarioC,
     mortgageTermYears,
-    monthlyExpenses,
+    totalExpenses,
     monthlyExtraRepayment,
     interestFreeLoanActive,
     interestFreeLoanAmount,
@@ -592,8 +869,8 @@ export default function HomeDashboard({
                     </p>
                   </div>
                 </div>
-                <span className="text-[10px] font-semibold text-slate-500 font-mono">
-                  {isFirstHomeBuyer ? 'First Home Buyer (FHBAS)' : 'Standard NSW buyer'}
+                <span className="text-[10px] font-semibold text-rose-400 font-mono">
+                  FHBAS Disabled
                 </span>
               </div>
 
@@ -696,55 +973,78 @@ export default function HomeDashboard({
                         <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
                           <span className="col-span-5 text-slate-400">Initial Asset Pool</span>
                           <span className="col-span-3 text-right text-slate-400 font-mono">${(cashAssets + sharesAssets + otherAssets).toLocaleString()}</span>
-                          <span className="col-span-4 text-right text-slate-400 font-mono">-</span>
+                          <span className="col-span-4 text-right font-bold text-slate-400 font-mono">${(cashAssets + sharesAssets + otherAssets).toLocaleString()}</span>
                         </div>
 
-                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
-                          <span className="col-span-5 text-slate-400">Monthly Savings Added</span>
-                          <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
-                          <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.additionalSavingsFromContributions.toLocaleString()}</span>
-                        </div>
-
-                        <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
-                          <div className="col-span-5">
-                            <span className="text-slate-400">Compounded Growth</span>
-                            {futureSimInfo.taxRateUsed !== undefined && (
+                        {existingPropertyValue > 0 ? (
+                          <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                            <div className="col-span-5">
+                              <span className="text-emerald-400 font-semibold">Consolidated Wealth (Phase 1)</span>
                               <span className="block text-[9px] text-slate-500 font-normal">
-                                After {Math.round(futureSimInfo.taxRateUsed * 100)}% lower-bracket tax
+                                Optimal: Scenario {exitSim.winningScenario} ({exitSim.holdingPeriodMonths} mo)
                               </span>
-                            )}
+                            </div>
+                            <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
+                            <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${Math.round(exitSim.winningScenarioWealth).toLocaleString()}</span>
                           </div>
-                          <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
-                          <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.compoundingGains.toLocaleString()}</span>
-                        </div>
-
-                        {futureSimInfo.compoundingGainsPreTax !== undefined && futureSimInfo.compoundingGainsPreTax > futureSimInfo.compoundingGains && (
+                        ) : (
                           <>
-                            <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px]">
-                              <span className="col-span-5 text-slate-500 pl-3">└─ Pre-Tax Returns</span>
-                              <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
-                              <span className="col-span-4 text-right text-slate-400 font-mono">+${futureSimInfo.compoundingGainsPreTax.toLocaleString()}</span>
+                            <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                              <span className="col-span-5 text-slate-400">Monthly Savings Added</span>
+                              <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
+                              <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.additionalSavingsFromContributions.toLocaleString()}</span>
                             </div>
-                            <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px] border-b border-slate-900/40">
-                              <span className="col-span-5 text-slate-500 pl-3">└─ Annual Interest Tax</span>
-                              <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
-                              <span className="col-span-4 text-right text-rose-400/80 font-mono">-${(futureSimInfo.taxPaidOnGains ?? 0).toLocaleString()}</span>
+
+                            <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                              <div className="col-span-5">
+                                <span className="text-slate-400">Compounded Growth</span>
+                                {futureSimInfo.taxRateUsed !== undefined && (
+                                  <span className="block text-[9px] text-slate-500 font-normal">
+                                    After {Math.round(futureSimInfo.taxRateUsed * 100)}% lower-bracket tax
+                                  </span>
+                                )}
+                              </div>
+                              <span className="col-span-3 text-right text-slate-400 font-mono">-</span>
+                              <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">+${futureSimInfo.compoundingGains.toLocaleString()}</span>
                             </div>
+
+                            {futureSimInfo.compoundingGainsPreTax !== undefined && futureSimInfo.compoundingGainsPreTax > futureSimInfo.compoundingGains && (
+                              <>
+                                <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px]">
+                                  <span className="col-span-5 text-slate-500 pl-3">└─ Pre-Tax Returns</span>
+                                  <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
+                                  <span className="col-span-4 text-right text-slate-400 font-mono">+${futureSimInfo.compoundingGainsPreTax.toLocaleString()}</span>
+                                </div>
+                                <div className="grid grid-cols-12 gap-1.5 py-0.5 text-[11px] border-b border-slate-900/40">
+                                  <span className="col-span-5 text-slate-500 pl-3">└─ Annual Interest Tax</span>
+                                  <span className="col-span-3 text-right text-slate-600 font-mono">-</span>
+                                  <span className="col-span-4 text-right text-rose-400/80 font-mono">-${(futureSimInfo.taxPaidOnGains ?? 0).toLocaleString()}</span>
+                                </div>
+                              </>
+                            )}
+
+                            {useExistingEquity && existingPropertyValue > 0 && (
+                              <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
+                                <span className="col-span-5 text-emerald-400 font-semibold">Available Equity</span>
+                                <span className="col-span-3 text-right text-emerald-500 font-mono">${existingEquity.toLocaleString()}</span>
+                                <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">${existingEquity.toLocaleString()}</span>
+                              </div>
+                            )}
                           </>
                         )}
 
-                        {useExistingEquity && existingPropertyValue > 0 && (
+                        {interestFreeLoanActive && (
                           <div className="grid grid-cols-12 gap-1.5 py-1 border-b border-slate-900/40">
-                            <span className="col-span-5 text-emerald-400 font-semibold">Available Equity</span>
-                            <span className="col-span-3 text-right text-emerald-500 font-mono">${existingEquity.toLocaleString()}</span>
-                            <span className="col-span-4 text-right font-bold text-emerald-400 font-mono">${existingEquity.toLocaleString()}</span>
+                            <span className="col-span-5 text-indigo-400 font-semibold">Family Loan</span>
+                            <span className="col-span-3 text-right text-indigo-400 font-mono">${interestFreeLoanAmount.toLocaleString()}</span>
+                            <span className="col-span-4 text-right font-bold text-indigo-400 font-mono">${interestFreeLoanAmount.toLocaleString()}</span>
                           </div>
                         )}
 
                         <div className="grid grid-cols-12 gap-1.5 py-2.5 bg-slate-900/30 rounded-lg px-2 border border-slate-900 font-sans mt-2">
                           <span className="col-span-5 text-slate-300 font-bold">Total Funding Pool</span>
-                          <span className="col-span-3 text-right text-slate-400 font-bold font-mono">${currentTotalOffsetAssets.toLocaleString()}</span>
-                          <span className="col-span-4 text-right text-emerald-300 font-extrabold font-mono text-[13px]">${futureSimInfo.accruedAssets.toLocaleString()}</span>
+                          <span className="col-span-3 text-right text-slate-400 font-bold font-mono">${(currentTotalOffsetAssets + (interestFreeLoanActive ? interestFreeLoanAmount : 0)).toLocaleString()}</span>
+                          <span className="col-span-4 text-right text-emerald-300 font-extrabold font-mono text-[13px]">${(finalTotalOffsetAssets + (interestFreeLoanActive ? interestFreeLoanAmount : 0)).toLocaleString()}</span>
                         </div>
                       </>
                     ) : (
@@ -771,9 +1071,16 @@ export default function HomeDashboard({
                           </div>
                         )}
 
+                        {interestFreeLoanActive && (
+                          <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                            <span className="text-indigo-400 font-semibold">Family Loan</span>
+                            <span className="font-semibold text-indigo-400 font-mono">${interestFreeLoanAmount.toLocaleString()}</span>
+                          </div>
+                        )}
+
                         <div className="flex justify-between items-center py-2.5 bg-slate-900/30 rounded-lg px-2.5 border border-slate-900">
                           <span className="text-slate-300 font-bold">Total Funding Offset</span>
-                          <span className="text-slate-100 font-extrabold font-mono text-sm">${currentTotalOffsetAssets.toLocaleString()}</span>
+                          <span className="text-slate-100 font-extrabold font-mono text-sm">${(currentTotalOffsetAssets + (interestFreeLoanActive ? interestFreeLoanAmount : 0)).toLocaleString()}</span>
                         </div>
                       </>
                     )}
@@ -974,21 +1281,53 @@ export default function HomeDashboard({
               </div>
 
               {/* Monthly living expenses reminder */}
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-900 text-xs">
-                <div>
-                  <span className="block text-[10px] text-slate-500 uppercase">Monthly Living Costs</span>
-                  <span className="font-semibold text-slate-300 font-mono">${monthlyExpenses.toLocaleString()}</span>
+              <div className="pt-3 border-t border-slate-900 text-[11px] space-y-2">
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>Pure Lifestyle (Groceries, Travel, etc)</span>
+                  <span className="font-semibold text-slate-300 font-mono">${monthlyExpenses.toLocaleString()}/mo</span>
                 </div>
-                <div>
-                  <span className="block text-[10px] text-slate-500 uppercase">Target Extra Repayment</span>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 mt-0.5">
-                    <span className="font-semibold text-emerald-400 font-mono">+${monthlyExtraRepayment.toLocaleString()}/mo</span>
+                {(monthlyPropertyStrata > 0 || monthlyPropertyCouncil > 0 || monthlyPropertyInsurance > 0 || monthlyPropertyUtilities > 0) && (
+                  <div className="pl-3 border-l border-slate-850 space-y-1 text-[10px]">
+                    {monthlyPropertyStrata > 0 && (
+                      <div className="flex justify-between text-slate-500">
+                        <span>└─ Strata Levy</span>
+                        <span className="font-mono text-slate-400">${monthlyPropertyStrata}/mo</span>
+                      </div>
+                    )}
+                    {monthlyPropertyCouncil > 0 && (
+                      <div className="flex justify-between text-slate-500">
+                        <span>└─ Council Rates</span>
+                        <span className="font-mono text-slate-400">${monthlyPropertyCouncil}/mo</span>
+                      </div>
+                    )}
+                    {monthlyPropertyInsurance > 0 && (
+                      <div className="flex justify-between text-slate-500">
+                        <span>└─ Home Insurance</span>
+                        <span className="font-mono text-slate-400">${monthlyPropertyInsurance}/mo</span>
+                      </div>
+                    )}
+                    {monthlyPropertyUtilities > 0 && (
+                      <div className="flex justify-between text-slate-500">
+                        <span>└─ Utilities & Running</span>
+                        <span className="font-mono text-slate-400">${monthlyPropertyUtilities}/mo</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex justify-between items-center border-t border-slate-900/60 pt-1.5 font-bold text-slate-300">
+                  <span>Total Outgoings (Excl. Mortgage)</span>
+                  <span className="font-extrabold text-slate-200 font-mono">${totalExpenses.toLocaleString()}/mo</span>
+                </div>
+                <div className="flex justify-between items-baseline pt-1">
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Target Extra Repayment</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-emerald-400 font-mono">+${monthlyExtraRepayment.toLocaleString()}/mo</span>
                     {onUpdate && leftoverCashflow > 0 && monthlyExtraRepayment < Math.round(leftoverCashflow) && (
                       <button
                         onClick={() => onUpdate({ monthlyExtraRepayment: Math.round(leftoverCashflow) })}
-                        className="text-[9px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer text-left"
+                        className="text-[9px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
                       >
-                        Set to Max Possible
+                        Set to Max
                       </button>
                     )}
                   </div>

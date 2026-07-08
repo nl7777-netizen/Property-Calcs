@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Landmark, Activity, Settings, Sparkles, HelpCircle, FileText, Scale, Bookmark
@@ -15,7 +15,9 @@ import {
   calculateNSWStampDuty,
   simulateMortgagePayoff,
   NSW_SUBURBS,
-  calculateFuturePurchaseSimulation
+  calculateFuturePurchaseSimulation,
+  addMonthsToDate,
+  getMonthsBetweenDates
 } from './utils/finance';
 
 import HomeDashboard from './components/HomeDashboard';
@@ -46,6 +48,15 @@ export default function App() {
         if (parsed[key] !== undefined) return parsed[key];
       }
     } catch {}
+    if (key === 'monthlyExpensesWithParents') {
+      try {
+        const exitPlannerSaved = localStorage.getItem('property_dashboard_exit_planner_inputs');
+        if (exitPlannerSaved) {
+          const parsed = JSON.parse(exitPlannerSaved);
+          if (parsed[key] !== undefined) return parsed[key];
+        }
+      } catch {}
+    }
     return defaultValue;
   };
 
@@ -73,6 +84,12 @@ export default function App() {
   const [interestRateScenarioC, setInterestRateScenarioC] = useState(() => getSavedInput('interestRateScenarioC', 7.0));
 
   const [monthlyExpenses, setMonthlyExpenses] = useState(() => getSavedInput('monthlyExpenses', 3800));
+  const [monthlyExpensesWithParents, setMonthlyExpensesWithParents] = useState(() => getSavedInput('monthlyExpensesWithParents', 1200));
+  const [monthlyPropertyStrata, setMonthlyPropertyStrata] = useState(() => getSavedInput('monthlyPropertyStrata', 400));
+  const [monthlyPropertyCouncil, setMonthlyPropertyCouncil] = useState(() => getSavedInput('monthlyPropertyCouncil', 115));
+  const [monthlyPropertyInsurance, setMonthlyPropertyInsurance] = useState(() => getSavedInput('monthlyPropertyInsurance', 100));
+  const [monthlyPropertyWater, setMonthlyPropertyWater] = useState(() => getSavedInput('monthlyPropertyWater', 80));
+  const [monthlyPropertyUtilities, setMonthlyPropertyUtilities] = useState(() => getSavedInput('monthlyPropertyUtilities', 300));
   const [monthlyExtraRepayment, setMonthlyExtraRepayment] = useState(() => getSavedInput('monthlyExtraRepayment', 600));
 
   const [existingPropertyValue, setExistingPropertyValue] = useState(() => getSavedInput('existingPropertyValue', 0));
@@ -132,6 +149,27 @@ export default function App() {
     }
   }, [dynamicTaxConfig]);
 
+  // Sync savings duration in Phase 2 with Holding Duration from Phase 1
+  useEffect(() => {
+    if (exitPlannerInputs && exitPlannerInputs.holdingPeriodMonths !== undefined) {
+      const diff = Math.max(0, getMonthsBetweenDates(currentSimDate, purchaseSimDate));
+      if (diff !== exitPlannerInputs.holdingPeriodMonths) {
+        const newPurchaseDate = addMonthsToDate(currentSimDate, exitPlannerInputs.holdingPeriodMonths);
+        setPurchaseSimDate(newPurchaseDate);
+      }
+    }
+  }, [exitPlannerInputs?.holdingPeriodMonths, currentSimDate]);
+
+  useEffect(() => {
+    const diff = Math.max(0, getMonthsBetweenDates(currentSimDate, purchaseSimDate));
+    if (exitPlannerInputs && exitPlannerInputs.holdingPeriodMonths !== undefined && exitPlannerInputs.holdingPeriodMonths !== diff) {
+      setExitPlannerInputs((prev: any) => ({
+        ...prev,
+        holdingPeriodMonths: diff
+      }));
+    }
+  }, [currentSimDate, purchaseSimDate]);
+
   // Unified active inputs memory saving
   useEffect(() => {
     const inputs = {
@@ -153,6 +191,11 @@ export default function App() {
       interestRateScenarioB,
       interestRateScenarioC,
       monthlyExpenses,
+      monthlyPropertyStrata,
+      monthlyPropertyCouncil,
+      monthlyPropertyInsurance,
+      monthlyPropertyWater,
+      monthlyPropertyUtilities,
       monthlyExtraRepayment,
       simulateFuturePurchase,
       propertyInflationEnabled,
@@ -184,6 +227,11 @@ export default function App() {
     interestRateScenarioB,
     interestRateScenarioC,
     monthlyExpenses,
+    monthlyPropertyStrata,
+    monthlyPropertyCouncil,
+    monthlyPropertyInsurance,
+    monthlyPropertyWater,
+    monthlyPropertyUtilities,
     monthlyExtraRepayment,
     simulateFuturePurchase,
     propertyInflationEnabled,
@@ -243,11 +291,13 @@ export default function App() {
     const combinedNetAnnual = taxBreakdown1.netPay + taxBreakdown2.netPay;
     const combinedNetMonthly = combinedNetAnnual / 12;
 
+    const totalExpenses = monthlyExpenses + (monthlyPropertyStrata || 0) + (monthlyPropertyCouncil || 0) + (monthlyPropertyInsurance || 0) + (monthlyPropertyWater || 0) + (monthlyPropertyUtilities || 0);
+
     const simulation = simulateMortgagePayoff(
       mortgageAmount,
       interestRatePrimary,
       mortgageTermYears,
-      monthlyExpenses,
+      totalExpenses,
       monthlyExtraRepayment,
       interestFreeLoanActive,
       interestFreeLoanAmount,
@@ -275,6 +325,11 @@ export default function App() {
     mortgageTermYears,
     interestRatePrimary,
     monthlyExpenses,
+    monthlyPropertyStrata,
+    monthlyPropertyCouncil,
+    monthlyPropertyInsurance,
+    monthlyPropertyWater,
+    monthlyPropertyUtilities,
     monthlyExtraRepayment,
     interestFreeLoanRepaymentYear,
     simulateFuturePurchase,
@@ -290,7 +345,7 @@ export default function App() {
   ]);
 
   // Setters for multiple inputs
-  const handleUpdateFields = (fields: any) => {
+  const handleUpdateFields = useCallback((fields: any) => {
     if (fields.propertyPrice !== undefined) setPropertyPrice(fields.propertyPrice);
     if (fields.isFirstHomeBuyer !== undefined) setIsFirstHomeBuyer(fields.isFirstHomeBuyer);
     if (fields.suburb !== undefined) setSuburb(fields.suburb);
@@ -314,6 +369,18 @@ export default function App() {
     if (fields.interestRateScenarioC !== undefined) setInterestRateScenarioC(fields.interestRateScenarioC);
 
     if (fields.monthlyExpenses !== undefined) setMonthlyExpenses(fields.monthlyExpenses);
+    if (fields.monthlyExpensesWithParents !== undefined) {
+      setMonthlyExpensesWithParents(fields.monthlyExpensesWithParents);
+      setExitPlannerInputs((prev: any) => ({
+        ...(prev || {}),
+        monthlyExpensesWithParents: fields.monthlyExpensesWithParents
+      }));
+    }
+    if (fields.monthlyPropertyStrata !== undefined) setMonthlyPropertyStrata(fields.monthlyPropertyStrata);
+    if (fields.monthlyPropertyCouncil !== undefined) setMonthlyPropertyCouncil(fields.monthlyPropertyCouncil);
+    if (fields.monthlyPropertyInsurance !== undefined) setMonthlyPropertyInsurance(fields.monthlyPropertyInsurance);
+    if (fields.monthlyPropertyWater !== undefined) setMonthlyPropertyWater(fields.monthlyPropertyWater);
+    if (fields.monthlyPropertyUtilities !== undefined) setMonthlyPropertyUtilities(fields.monthlyPropertyUtilities);
     if (fields.monthlyExtraRepayment !== undefined) setMonthlyExtraRepayment(fields.monthlyExtraRepayment);
 
     if (fields.existingPropertyValue !== undefined) setExistingPropertyValue(fields.existingPropertyValue);
@@ -326,7 +393,14 @@ export default function App() {
     if (fields.purchaseSimDate !== undefined) setPurchaseSimDate(fields.purchaseSimDate);
     if (fields.monthlySavingsContribution !== undefined) setMonthlySavingsContribution(fields.monthlySavingsContribution);
     if (fields.savingsAnnualReturnRate !== undefined) setSavingsAnnualReturnRate(fields.savingsAnnualReturnRate);
-  };
+  }, []);
+
+  const handleUpdateExitPlannerInputs = useCallback((inputs: any) => {
+    setExitPlannerInputs(inputs);
+    if (inputs.monthlyExpensesWithParents !== undefined) {
+      setMonthlyExpensesWithParents(inputs.monthlyExpensesWithParents);
+    }
+  }, []);
 
   // Profile save
   const handleSaveScenario = (name: string) => {
@@ -388,6 +462,11 @@ export default function App() {
     setInterestRateScenarioB(s.interestRateScenarioB ?? 5.2);
     setInterestRateScenarioC(s.interestRateScenarioC ?? 7.0);
     setMonthlyExpenses(s.monthlyExpenses);
+    setMonthlyPropertyStrata(s.monthlyPropertyStrata ?? 400);
+    setMonthlyPropertyCouncil(s.monthlyPropertyCouncil ?? 115);
+    setMonthlyPropertyInsurance(s.monthlyPropertyInsurance ?? 100);
+    setMonthlyPropertyWater(s.monthlyPropertyWater ?? 80);
+    setMonthlyPropertyUtilities(s.monthlyPropertyUtilities ?? 300);
     setMonthlyExtraRepayment(s.monthlyExtraRepayment);
     setSimulateFuturePurchase(s.simulateFuturePurchase ?? false);
     setPropertyInflationEnabled(s.propertyInflationEnabled ?? false);
@@ -557,6 +636,10 @@ export default function App() {
                 interestRateScenarioB={interestRateScenarioB}
                 interestRateScenarioC={interestRateScenarioC}
                 monthlyExpenses={monthlyExpenses}
+                monthlyPropertyStrata={monthlyPropertyStrata}
+                monthlyPropertyCouncil={monthlyPropertyCouncil}
+                monthlyPropertyInsurance={monthlyPropertyInsurance}
+                monthlyPropertyUtilities={monthlyPropertyUtilities}
                 monthlyExtraRepayment={monthlyExtraRepayment}
                 existingPropertyValue={existingPropertyValue}
                 existingPropertyLoan={existingPropertyLoan}
@@ -571,6 +654,9 @@ export default function App() {
                 suburbsList={suburbsList}
                 onUpdate={handleUpdateFields}
                 onNavigateToSettings={() => setActiveTab('settings')}
+                monthlyPropertyWater={monthlyPropertyWater}
+                exitPlannerInputs={exitPlannerInputs}
+                monthlyExpensesWithParents={monthlyExpensesWithParents}
               />
             ) : activeTab === 'settings' ? (
               <SettingsPanel
@@ -595,6 +681,12 @@ export default function App() {
                 interestRateScenarioB={interestRateScenarioB}
                 interestRateScenarioC={interestRateScenarioC}
                 monthlyExpenses={monthlyExpenses}
+                monthlyExpensesWithParents={monthlyExpensesWithParents}
+                monthlyPropertyStrata={monthlyPropertyStrata}
+                monthlyPropertyCouncil={monthlyPropertyCouncil}
+                monthlyPropertyInsurance={monthlyPropertyInsurance}
+                monthlyPropertyWater={monthlyPropertyWater}
+                monthlyPropertyUtilities={monthlyPropertyUtilities}
                 monthlyExtraRepayment={monthlyExtraRepayment}
                 simulateFuturePurchase={simulateFuturePurchase}
                 propertyInflationEnabled={propertyInflationEnabled}
@@ -617,8 +709,13 @@ export default function App() {
                 defaultPropertyValue={existingPropertyValue}
                 defaultPropertyLoan={existingPropertyLoan}
                 monthlyExpenses={monthlyExpenses}
+                monthlyPropertyStrata={monthlyPropertyStrata}
+                monthlyPropertyCouncil={monthlyPropertyCouncil}
+                monthlyPropertyInsurance={monthlyPropertyInsurance}
+                monthlyPropertyWater={monthlyPropertyWater}
+                monthlyPropertyUtilities={monthlyPropertyUtilities}
                 loadedInputs={exitPlannerInputs}
-                onUpdateInputs={(inputs) => setExitPlannerInputs(inputs)}
+                onUpdateInputs={handleUpdateExitPlannerInputs}
               />
             ) : (
               <div className="space-y-6" id="scenarios-sync-tab-content">

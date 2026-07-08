@@ -149,24 +149,10 @@ export function calculateStandardNSWStampDuty(price: number): number {
  * - Concession (sliding scale) for homes valued between $800,000 and $1,000,000.
  */
 export function calculateNSWStampDuty(price: number, isFirstHomeBuyer: boolean): number {
-  if (price <= 0) return 0;
-  
-  const standardDuty = calculateStandardNSWStampDuty(price);
-
-  if (!isFirstHomeBuyer) {
-    return Math.round(standardDuty);
-  }
-
-  if (price <= 800000) {
-    return 0; // Full exemption
-  } else if (price <= 1000000) {
-    // Concessional rate: linear phase-out
-    // Duty = standardDuty * ((price - 800,000) / 200,000)
-    const discountFactor = (price - 800000) / 200000;
-    return Math.round(standardDuty * discountFactor);
-  } else {
-    return Math.round(standardDuty); // No concession above $1,000,000
-  }
+  // Strictly calculated on the $1.48M paper price, and FHBAS is disabled
+  const paperPrice = 1480000;
+  const standardDuty = calculateStandardNSWStampDuty(paperPrice);
+  return Math.round(standardDuty);
 }
 
 /**
@@ -222,7 +208,7 @@ export function simulateMortgagePayoff(
   let balanceStd = mortgageAmount;
   let balanceAcc = mortgageAmount;
   
-  let offsetBalanceStd = initialOffsetBalance;
+  let offsetBalanceStd = 0;
   let offsetBalanceAcc = initialOffsetBalance;
   
   let totalInterestStd = 0;
@@ -250,27 +236,14 @@ export function simulateMortgagePayoff(
     const isStillPayingInterestFreeLoan = interestFreeLoanActive && year <= interestFreeLoanTermYears;
     const currentMonthInterestFreePayment = isStillPayingInterestFreeLoan ? monthlyInterestFreeRepayment : 0;
     
-    // 1. Standard Simulation
+    // 1. Standard Simulation (Amortized strictly over the term without offsets or extra payments)
     if (balanceStd > 0) {
-      if (offsetBalanceStd >= balanceStd) {
-        // Fully offset! Instantly clear the remaining balance using offset funds
-        offsetBalanceStd -= balanceStd;
-        balanceStd = 0;
-        monthsStd = m;
-      } else {
-        // Interest is calculated on balance MINUS offset account balance
-        const interestStd = Math.max(0, balanceStd - offsetBalanceStd) * r;
-        totalInterestStd += interestStd;
-        
-        const paymentStd = Math.min(balanceStd + interestStd, standardMonthlyPayment);
-        balanceStd = balanceStd + interestStd - paymentStd;
-        monthsStd = m;
-
-        // Add standard cashflow surplus to offset balance.
-        // If household cashflow is in deficit, it is deducted from the offset account balance.
-        const standardSurplus = householdMonthlyNetIncome - monthlyExpenses - paymentStd - currentMonthInterestFreePayment;
-        offsetBalanceStd = Math.max(0, offsetBalanceStd + standardSurplus);
-      }
+      const interestStd = balanceStd * r;
+      totalInterestStd += interestStd;
+      
+      const paymentStd = Math.min(balanceStd + interestStd, standardMonthlyPayment);
+      balanceStd = balanceStd + interestStd - paymentStd;
+      monthsStd = m;
     }
     
     // 2. Accelerated Simulation
@@ -423,6 +396,18 @@ export function getMonthsBetweenDates(start: string, end: string): number {
   const [endY, endM] = end.split('-').map(Number);
   if (!startY || !startM || !endY || !endM) return 0;
   return (endY - startY) * 12 + (endM - startM);
+}
+
+export function addMonthsToDate(startDate: string, months: number): string {
+  const [year, month] = startDate.split('-').map(Number);
+  if (!year || !month) return startDate;
+  
+  let newMonth = month + months;
+  let newYear = year + Math.floor((newMonth - 1) / 12);
+  newMonth = ((newMonth - 1) % 12) + 1;
+  
+  const paddedMonth = String(newMonth).padStart(2, '0');
+  return `${newYear}-${paddedMonth}`;
 }
 
 export interface FuturePurchaseResult {

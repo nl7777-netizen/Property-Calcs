@@ -54,6 +54,12 @@ interface SettingsPanelProps {
 
   // Cashflow
   monthlyExpenses: number;
+  monthlyExpensesWithParents: number;
+  monthlyPropertyStrata: number;
+  monthlyPropertyCouncil: number;
+  monthlyPropertyInsurance: number;
+  monthlyPropertyWater: number;
+  monthlyPropertyUtilities: number;
   monthlyExtraRepayment: number;
 
   // Future Purchase Simulation
@@ -95,6 +101,12 @@ export default function SettingsPanel({
   interestRateScenarioB,
   interestRateScenarioC,
   monthlyExpenses,
+  monthlyExpensesWithParents,
+  monthlyPropertyStrata,
+  monthlyPropertyCouncil,
+  monthlyPropertyInsurance,
+  monthlyPropertyWater,
+  monthlyPropertyUtilities,
   monthlyExtraRepayment,
   simulateFuturePurchase,
   propertyInflationEnabled,
@@ -114,6 +126,43 @@ export default function SettingsPanel({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchingSuburb, setIsSearchingSuburb] = useState(false);
   const [suburbSearchError, setSuburbSearchError] = useState<string | null>(null);
+
+  // Local input states for debouncing to prevent typing lag and infinite recalculation loops
+  const [localExpensesStr, setLocalExpensesStr] = useState(() => monthlyExpenses === 0 ? '' : monthlyExpenses.toLocaleString());
+  const [localExpensesWithParentsStr, setLocalExpensesWithParentsStr] = useState(() => monthlyExpensesWithParents === 0 ? '' : monthlyExpensesWithParents.toLocaleString());
+
+  // Keep local states in sync when props change from the outside (e.g. loading a scenario)
+  React.useEffect(() => {
+    setLocalExpensesStr(monthlyExpenses === 0 ? '' : monthlyExpenses.toLocaleString());
+  }, [monthlyExpenses]);
+
+  React.useEffect(() => {
+    setLocalExpensesWithParentsStr(monthlyExpensesWithParents === 0 ? '' : monthlyExpensesWithParents.toLocaleString());
+  }, [monthlyExpensesWithParents]);
+
+  // Debounce updates to the parent component for monthlyExpenses (Pure Lifestyle)
+  React.useEffect(() => {
+    const val = parseFloat(localExpensesStr.replace(/[^0-9.]/g, '')) || 0;
+    if (val === monthlyExpenses) return;
+
+    const handler = setTimeout(() => {
+      onUpdate({ monthlyExpenses: val });
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [localExpensesStr, onUpdate, monthlyExpenses]);
+
+  // Debounce updates to the parent component for monthlyExpensesWithParents
+  React.useEffect(() => {
+    const val = parseFloat(localExpensesWithParentsStr.replace(/[^0-9.]/g, '')) || 0;
+    if (val === monthlyExpensesWithParents) return;
+
+    const handler = setTimeout(() => {
+      onUpdate({ monthlyExpensesWithParents: val });
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [localExpensesWithParentsStr, onUpdate, monthlyExpensesWithParents]);
 
   // Dynamic max extra repayments calculation
   const maxPossibleExtra = React.useMemo(() => {
@@ -160,11 +209,13 @@ export default function SettingsPanel({
     const combinedNetAnnual = taxBreakdown1.netPay + taxBreakdown2.netPay;
     const combinedNetMonthly = combinedNetAnnual / 12;
 
+    const totalExpenses = monthlyExpenses + (monthlyPropertyStrata || 0) + (monthlyPropertyCouncil || 0) + (monthlyPropertyInsurance || 0) + (monthlyPropertyUtilities || 0);
+
     const simulation = simulateMortgagePayoff(
       mortgageAmount,
       interestRatePrimary,
       mortgageTermYears,
-      monthlyExpenses,
+      totalExpenses,
       0, // calculate standard payoff with 0 extra repayment to get standard payment
       interestFreeLoanActive,
       interestFreeLoanAmount,
@@ -174,7 +225,7 @@ export default function SettingsPanel({
 
     const minMortgagePayment = simulation.standardMonthlyPayment;
     const monthlyIFLRepayment = interestFreeLoanActive ? (interestFreeLoanRepaymentYear / 12) : 0;
-    const leftoverCashflow = Math.max(0, combinedNetMonthly - monthlyExpenses - minMortgagePayment - monthlyIFLRepayment);
+    const leftoverCashflow = Math.max(0, combinedNetMonthly - totalExpenses - minMortgagePayment - monthlyIFLRepayment);
 
     return Math.max(0, Math.round(leftoverCashflow));
   }, [
@@ -193,6 +244,10 @@ export default function SettingsPanel({
     mortgageTermYears,
     interestRatePrimary,
     monthlyExpenses,
+    monthlyPropertyStrata,
+    monthlyPropertyCouncil,
+    monthlyPropertyInsurance,
+    monthlyPropertyUtilities,
     existingPropertyValue,
     existingPropertyLoan,
     useExistingEquity,
@@ -388,15 +443,6 @@ export default function SettingsPanel({
                           className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
                         />
                       </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="350000"
-                        step="5000"
-                        value={salary1}
-                        onChange={(e) => onUpdate({ salary1: parseFloat(e.target.value) })}
-                        className="w-full accent-emerald-500 h-1 mt-2.5 bg-slate-950 rounded"
-                      />
                     </div>
 
                     {/* Salary 2 */}
@@ -417,15 +463,6 @@ export default function SettingsPanel({
                           className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
                         />
                       </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="350000"
-                        step="5000"
-                        value={salary2}
-                        onChange={(e) => onUpdate({ salary2: parseFloat(e.target.value) })}
-                        className="w-full accent-emerald-500 h-1 mt-2.5 bg-slate-950 rounded"
-                      />
                     </div>
 
                     {/* Tax Year selection */}
@@ -520,28 +557,75 @@ export default function SettingsPanel({
                   
                   {/* Living expenses */}
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs text-slate-400 font-medium">Monthly Living Expenses (Excluding Rent/Mortgage)</label>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs text-slate-400 font-medium">Monthly Living Expenses (Pure Lifestyle Only)</label>
                       <span className="text-xs text-slate-200 font-mono font-bold">${monthlyExpenses.toLocaleString()}/mo</span>
                     </div>
-                    <input
-                      type="range"
-                      min="1000"
-                      max="12000"
-                      step="100"
-                      value={monthlyExpenses}
-                      onChange={(e) => onUpdate({ monthlyExpenses: parseFloat(e.target.value) })}
-                      className="w-full accent-emerald-500 h-1.5 bg-slate-950 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
-                      <span>Frugal ($1,000)</span>
-                      <span>High Cost ($12,000)</span>
+                    <div className="relative mb-4">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-mono">$</span>
+                      <input
+                        type="text"
+                        value={localExpensesStr}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9]/g, '');
+                          setLocalExpensesStr(raw === '' ? '' : parseInt(raw, 10).toLocaleString());
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
+                      />
+                    </div>
+
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs text-slate-400 font-medium">Reduced Expenses (Live with Parents - Scenarios A & C)</label>
+                      <span className="text-xs text-slate-200 font-mono font-bold">${monthlyExpensesWithParents.toLocaleString()}/mo</span>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-mono">$</span>
+                      <input
+                        type="text"
+                        value={localExpensesWithParentsStr}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9]/g, '');
+                          setLocalExpensesWithParentsStr(raw === '' ? '' : parseInt(raw, 10).toLocaleString());
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
+                      />
+                    </div>
+
+                    <div className="bg-slate-950/65 border border-amber-500/15 rounded-xl p-3.5 space-y-2 mt-4">
+                      <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[10px] uppercase tracking-wider font-mono">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Avoid Double-Counting Costs</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                        To prevent double counting in the **Property Exit Planner (Scenario B & C)**, please exclude any mortgage interest, strata, council rates, insurance, and utilities from this input box. These property holding costs are automatically calculated and subtracted dynamically in the simulation based on the Property details.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 pt-1.5 border-t border-slate-800/40 text-[9px] font-sans">
+                        <div>
+                          <span className="block text-emerald-400 font-bold mb-0.5">✅ INCLUDE HERE:</span>
+                          <ul className="list-disc pl-3 space-y-0.5 text-slate-500">
+                            <li>Groceries & Dining</li>
+                            <li>Transport & Fuel</li>
+                            <li>Personal Shopping</li>
+                            <li>Entertainment & Gym</li>
+                            <li>Health & Subscriptions</li>
+                          </ul>
+                        </div>
+                        <div>
+                          <span className="block text-rose-400 font-bold mb-0.5">❌ EXCLUDE HERE:</span>
+                          <ul className="list-disc pl-3 space-y-0.5 text-slate-500">
+                            <li>Mortgage Payments</li>
+                            <li>Strata & Council Rates</li>
+                            <li>Home Insurance</li>
+                            <li>Detailed Utilities</li>
+                          </ul>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   {/* Overpayments */}
                   <div>
-                    <div className="flex justify-between items-start mb-1">
+                    <div className="flex justify-between items-start mb-1.5">
                       <div className="flex flex-col">
                         <label className="text-xs text-slate-400 font-medium">Target Extra Monthly Repayment</label>
                         <span className="text-[10px] text-slate-500 font-medium">Max possible surplus: ${maxPossibleExtra.toLocaleString()}/mo</span>
@@ -559,21 +643,120 @@ export default function SettingsPanel({
                         )}
                       </div>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max={Math.max(5000, maxPossibleExtra)}
-                      step="100"
-                      value={Math.min(monthlyExtraRepayment, Math.max(5000, maxPossibleExtra))}
-                      onChange={(e) => onUpdate({ monthlyExtraRepayment: parseFloat(e.target.value) })}
-                      className="w-full accent-emerald-500 h-1.5 bg-slate-950 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
-                      <span>None ($0)</span>
-                      <span>Aggressive (${Math.max(5000, maxPossibleExtra).toLocaleString()})</span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-mono">$</span>
+                      <input
+                        type="text"
+                        value={monthlyExtraRepayment === 0 ? '' : monthlyExtraRepayment.toLocaleString()}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9.]/g, '');
+                          onUpdate({ monthlyExtraRepayment: parseFloat(raw) || 0 });
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
+                      />
                     </div>
                   </div>
 
+                </div>
+
+                {/* Separated Property Expenses Section */}
+                <div className="border-t border-slate-900/60 pt-4 mt-2">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+                    Separated Property Holding & Running Costs (Target Home)
+                  </span>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    {/* Strata */}
+                    <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-3">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1.5">Strata Levy (/mo)</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">$</span>
+                        <input
+                          type="number"
+                          value={monthlyPropertyStrata === 0 ? '' : monthlyPropertyStrata}
+                          onChange={(e) => onUpdate({ monthlyPropertyStrata: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-5 pr-2 py-1.5 text-[11px] text-slate-200 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Council Rates */}
+                    <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-3">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1.5">Council Rates (/mo)</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">$</span>
+                        <input
+                          type="number"
+                          value={monthlyPropertyCouncil === 0 ? '' : monthlyPropertyCouncil}
+                          onChange={(e) => onUpdate({ monthlyPropertyCouncil: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-5 pr-2 py-1.5 text-[11px] text-slate-200 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Insurance */}
+                    <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-3">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1.5">Home Insurance (/mo)</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">$</span>
+                        <input
+                          type="number"
+                          value={monthlyPropertyInsurance === 0 ? '' : monthlyPropertyInsurance}
+                          onChange={(e) => onUpdate({ monthlyPropertyInsurance: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-5 pr-2 py-1.5 text-[11px] text-slate-200 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Water Rates */}
+                    <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-3">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1.5">Water Rates (/mo)</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">$</span>
+                        <input
+                          type="number"
+                          value={monthlyPropertyWater === 0 ? '' : monthlyPropertyWater}
+                          onChange={(e) => onUpdate({ monthlyPropertyWater: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-5 pr-2 py-1.5 text-[11px] text-slate-200 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Utilities */}
+                    <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-3">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1.5">Power & Internet (/mo)</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">$</span>
+                        <input
+                          type="number"
+                          value={monthlyPropertyUtilities === 0 ? '' : monthlyPropertyUtilities}
+                          onChange={(e) => onUpdate({ monthlyPropertyUtilities: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-5 pr-2 py-1.5 text-[11px] text-slate-200 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Card */}
+                  <div className="bg-emerald-950/10 border border-emerald-500/15 rounded-xl p-3 mt-4 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      <strong>Consolidated Outgoings:</strong> Combining pure lifestyle costs and separate property maintenance/utility expenses yields your total monthly household commitment (excluding mortgage).
+                    </p>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right border-r border-slate-800 pr-3">
+                        <span className="block text-[9px] text-slate-500 font-semibold uppercase">Pure Lifestyle</span>
+                        <span className="text-xs text-slate-300 font-mono font-bold">${monthlyExpenses.toLocaleString()}/mo</span>
+                      </div>
+                      <div className="text-right border-r border-slate-800 pr-3">
+                        <span className="block text-[9px] text-slate-500 font-semibold uppercase">Property & Utilities</span>
+                        <span className="text-xs text-slate-300 font-mono font-bold">${(monthlyPropertyStrata + monthlyPropertyCouncil + monthlyPropertyInsurance + monthlyPropertyWater + monthlyPropertyUtilities).toLocaleString()}/mo</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-[9px] text-emerald-400 font-extrabold uppercase">Total Outgoings</span>
+                        <span className="text-sm text-emerald-400 font-mono font-black">${(monthlyExpenses + monthlyPropertyStrata + monthlyPropertyCouncil + monthlyPropertyInsurance + monthlyPropertyWater + monthlyPropertyUtilities).toLocaleString()}/mo</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -611,35 +794,22 @@ export default function SettingsPanel({
                           className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-6 pr-3 py-2 text-xs text-slate-100 outline-none font-mono"
                         />
                       </div>
-                      <input
-                        type="range"
-                        min="200000"
-                        max="6500000"
-                        step="25000"
-                        value={propertyPrice}
-                        onChange={(e) => onUpdate({ propertyPrice: parseFloat(e.target.value) })}
-                        className="w-full accent-emerald-500 h-1 mt-2.5 bg-slate-950 rounded"
-                      />
                     </div>
 
                     {/* First Home buyer toggle */}
-                    <div className="flex items-center justify-between p-3 bg-slate-900/40 rounded-lg border border-slate-900">
+                    <div className="flex items-center justify-between p-3 bg-slate-900/40 rounded-lg border border-slate-900 opacity-70">
                       <div>
                         <span className="block text-xs font-bold text-slate-300">First Home Buyer Status (NSW FHBAS)</span>
                         <span className="text-[10px] text-slate-500 leading-normal block max-w-sm">
-                          Grants stamp duty exemption under $800k, and sliding-scale concession under $1M.
+                          FHBAS is strictly disabled. Stamp Duty is calculated strictly on the $1.48M paper price.
                         </span>
                       </div>
                       
                       <button
-                        onClick={() => onUpdate({ isFirstHomeBuyer: !isFirstHomeBuyer })}
-                        className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
-                          isFirstHomeBuyer
-                            ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
-                            : 'bg-slate-950 text-slate-500 border border-slate-900 hover:text-slate-400'
-                        }`}
+                        disabled
+                        className="px-3 py-1 text-xs font-bold rounded bg-slate-950 text-slate-600 border border-slate-900 cursor-not-allowed"
                       >
-                        {isFirstHomeBuyer ? 'Active' : 'Inactive'}
+                        Disabled
                       </button>
                     </div>
 
@@ -660,21 +830,22 @@ export default function SettingsPanel({
                         </select>
                       </div>
 
-                      {/* Custom suburb growth slider */}
+                      {/* Custom suburb growth input */}
                       <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs text-slate-400">Projection Growth Rate</label>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <label className="text-xs text-slate-400 font-medium">Projection Growth Rate</label>
                           <span className="text-xs font-bold text-emerald-400 font-mono">{customGrowthRate}%</span>
                         </div>
-                        <input
-                          type="range"
-                          min="1"
-                          max="15"
-                          step="0.1"
-                          value={customGrowthRate}
-                          onChange={(e) => onUpdate({ customGrowthRate: parseFloat(e.target.value) })}
-                          className="w-full accent-emerald-500 h-1 bg-slate-950 rounded mt-2"
-                        />
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={customGrowthRate}
+                            onChange={(e) => onUpdate({ customGrowthRate: parseFloat(e.target.value) || 0 })}
+                            className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-3 pr-7 py-1.5 text-xs text-slate-100 outline-none font-mono"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-mono">%</span>
+                        </div>
                       </div>
                     </div>
 
@@ -713,22 +884,20 @@ export default function SettingsPanel({
                   <div className="space-y-4">
                     {/* Term */}
                     <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs text-slate-400">Mortgage Term (Duration)</label>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="text-xs text-slate-400 font-medium">Mortgage Term (Duration)</label>
                         <span className="text-xs font-bold text-slate-200 font-mono">{mortgageTermYears} Years</span>
                       </div>
-                      <input
-                        type="range"
-                        min="10"
-                        max="35"
-                        step="1"
-                        value={mortgageTermYears}
-                        onChange={(e) => onUpdate({ mortgageTermYears: parseFloat(e.target.value) })}
-                        className="w-full accent-emerald-500 h-1 bg-slate-950 rounded cursor-pointer"
-                      />
-                      <div className="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
-                        <span>10 Yrs</span>
-                        <span>35 Yrs</span>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={mortgageTermYears}
+                          onChange={(e) => onUpdate({ mortgageTermYears: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/40 rounded-lg pl-3 pr-12 py-1.5 text-xs text-slate-100 outline-none font-mono"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-mono">Years</span>
                       </div>
                     </div>
 
